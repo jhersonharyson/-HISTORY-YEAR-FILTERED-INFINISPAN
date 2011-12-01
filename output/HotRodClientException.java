@@ -1,3 +1,25 @@
+/*
+ * JBoss, Home of Professional Open Source
+ * Copyright 2010 Red Hat Inc. and/or its affiliates and other
+ * contributors as indicated by the @author tags. All rights reserved.
+ * See the copyright.txt in the distribution for a full listing of
+ * individual contributors.
+ *
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free
+ * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
+ */
 package org.infinispan.client.hotrod.exceptions;
 
 /**
@@ -31,15 +53,18 @@ public class HotRodClientException extends RuntimeException {
       this.errorStatusCode = errorStatusCode;
    }
 
-
    @Override
    public String toString() {
       StringBuilder sb = new StringBuilder(getClass().getName());
       sb.append(":");
-      if (messageId != -1) sb.append(" id [").append(messageId).append("]");
-      if (errorStatusCode != -1) sb.append(" code [").append(errorStatusCode).append("]");
+      if (messageId != -1) sb.append("Request for message id[").append(messageId).append("]");
+      if (errorStatusCode != -1) sb.append(" returned ").append(toErrorMsg(errorStatusCode));
       String message = getLocalizedMessage();
-      if (message != null) sb.append(" ").append(message);
+      if (message != null) sb.append(": ").append(message);
       return sb.toString();
+   }
+
+   private String toErrorMsg(int errorStatusCode) {
+      return String.format("server error (status=0x%x)", errorStatusCode);
    }
 }

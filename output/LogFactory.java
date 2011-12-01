@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
+ * Copyright 2009 Red Hat Inc. and/or its affiliates and other
  * contributors as indicated by the @author tags. All rights reserved.
  * See the copyright.txt in the distribution for a full listing of
  * individual contributors.
@@ -20,40 +20,35 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.infinispan.client.hotrod.impl;
+package org.infinispan.client.hotrod.logging;
 
-import org.infinispan.client.hotrod.VersionedValue;
+import org.jboss.logging.Logger;
+import org.jboss.logging.NDC;
 
 /**
- * @author Mircea.Markus@jboss.com
- * @since 4.1
+ * Factory that creates {@link Log} instances.
+ *
+ * @author Manik Surtani
+ * @since 4.0
  */
-public class VersionedValueImpl<V> implements VersionedValue<V> {
+public class LogFactory {
 
-   private long version;
-
-   private V value;
-
-   public VersionedValueImpl(long version, V value) {
-      this.version = version;
-      this.value = value;
+   public static Log getLog(Class<?> clazz) {
+      return Logger.getMessageLogger(Log.class, clazz.getName());
    }
 
-   @Override
-   public long getVersion() {
-      return version;
+   public static <T> T getLog(Class<?> clazz, Class<T> logClass) {
+      return Logger.getMessageLogger(logClass, clazz.getName());
    }
 
-   @Override
-   public V getValue() {
-      return value;
+   public static void pushNDC(String cacheName, boolean isTrace) {
+      if (isTrace)
+         NDC.push(cacheName);
    }
 
-   @Override
-   public String toString() {
-      return "VersionedValueImpl{" +
-            "version=" + version +
-            ", value=" + value +
-            '}';
+   public static void popNDC(boolean isTrace) {
+      if (isTrace)
+         NDC.pop();
    }
+
 }

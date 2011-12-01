@@ -1,19 +1,28 @@
+/*
+ * JBoss, Home of Professional Open Source
+ * Copyright 2010 Red Hat Inc. and/or its affiliates and other
+ * contributors as indicated by the @author tags. All rights reserved.
+ * See the copyright.txt in the distribution for a full listing of
+ * individual contributors.
+ *
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free
+ * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
+ */
 package org.infinispan.client.hotrod.impl;
 
-import org.infinispan.client.hotrod.Flag;
-import org.infinispan.client.hotrod.RemoteCache;
-import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.ServerStatistics;
-import org.infinispan.client.hotrod.Version;
-import org.infinispan.client.hotrod.VersionedValue;
-import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
-import org.infinispan.client.hotrod.exceptions.TransportException;
-import org.infinispan.client.hotrod.impl.async.NotifyingFutureImpl;
-import org.infinispan.client.hotrod.impl.operations.*;
-import org.infinispan.marshall.Marshaller;
-import org.infinispan.util.concurrent.NotifyingFuture;
-import org.infinispan.util.logging.Log;
-import org.infinispan.util.logging.LogFactory;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -24,13 +33,42 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.RemoteCache;
+import org.infinispan.client.hotrod.RemoteCacheManager;
+import org.infinispan.client.hotrod.ServerStatistics;
+import org.infinispan.client.hotrod.Version;
+import org.infinispan.client.hotrod.VersionedValue;
+import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
+import org.infinispan.client.hotrod.exceptions.TransportException;
+import org.infinispan.client.hotrod.impl.async.NotifyingFutureImpl;
+import org.infinispan.client.hotrod.impl.operations.BulkGetOperation;
+import org.infinispan.client.hotrod.impl.operations.ClearOperation;
+import org.infinispan.client.hotrod.impl.operations.ContainsKeyOperation;
+import org.infinispan.client.hotrod.impl.operations.GetOperation;
+import org.infinispan.client.hotrod.impl.operations.GetWithVersionOperation;
+import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
+import org.infinispan.client.hotrod.impl.operations.PingOperation;
+import org.infinispan.client.hotrod.impl.operations.PutIfAbsentOperation;
+import org.infinispan.client.hotrod.impl.operations.PutOperation;
+import org.infinispan.client.hotrod.impl.operations.RemoveIfUnmodifiedOperation;
+import org.infinispan.client.hotrod.impl.operations.RemoveOperation;
+import org.infinispan.client.hotrod.impl.operations.ReplaceIfUnmodifiedOperation;
+import org.infinispan.client.hotrod.impl.operations.ReplaceOperation;
+import org.infinispan.client.hotrod.impl.operations.StatsOperation;
+import org.infinispan.client.hotrod.impl.transport.Transport;
+import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.marshall.Marshaller;
+import org.infinispan.util.concurrent.NotifyingFuture;
+
 /**
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
 public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
 
-   private static final Log log = LogFactory.getLog(RemoteCacheImpl.class);
+   private static final Log log = LogFactory.getLog(RemoteCacheImpl.class, Log.class);
 
    private Marshaller marshaller;
    private final String name;
@@ -43,7 +81,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
 
    public RemoteCacheImpl(RemoteCacheManager rcm, String name) {
       if (log.isTraceEnabled()) {
-         log.trace("Creating remote cache: " + name);
+         log.tracef("Creating remote cache: %s", name);
       }
       this.name = name;
       this.remoteCacheManager = rcm;
@@ -143,6 +181,18 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
    }
 
    @Override
+   public int size() {
+      assertRemoteCacheManagerIsStarted();
+      StatsOperation op = operationsFactory.newStatsOperation();
+      return Integer.parseInt(((Map<String, String>) op.execute()).get(ServerStatistics.CURRENT_NR_OF_ENTRIES));
+   }
+
+   @Override
+   public boolean isEmpty() {
+      return size() == 0;
+   }
+
+   @Override
    public ServerStatistics stats() {
       assertRemoteCacheManagerIsStarted();
       StatsOperation op = operationsFactory.newStatsOperation();
@@ -160,7 +210,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       int lifespanSecs = toSeconds(lifespan, lifespanUnit);
       int maxIdleSecs = toSeconds(maxIdleTime, maxIdleTimeUnit);
       if (log.isTraceEnabled()) {
-         log.trace("About to add (K,V): (" + key + ", " + value + ") lifespanSecs:" + lifespanSecs + ", maxIdleSecs:" + maxIdleSecs);
+         log.tracef("About to add (K,V): (%s, %s) lifespanSecs:%d, maxIdleSecs:%d", key, value, lifespanSecs, maxIdleSecs);
       }
       PutOperation op = operationsFactory.newPutKeyValueOperation(obj2bytes(key, true), obj2bytes(value, false), lifespanSecs, maxIdleSecs);
       byte[] result = (byte[]) op.execute();
@@ -249,7 +299,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
          }
       });
       result.setExecuting(future);
-      return result;      
+      return result;
    }
 
    @Override
@@ -283,7 +333,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       byte[] bytes = (byte[]) gco.execute();
       V result = (V) bytes2obj(bytes);
       if (log.isTraceEnabled()) {
-         log.trace("For key(" + key + ") returning " + result);
+         log.tracef("For key(%s) returning %s", key, result);
       }
       return result;
    }
@@ -324,15 +374,15 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
 
    @Override
    public void start() {
-      if (log.isInfoEnabled()) {
-         log.info("Start called, nothing to do here(" + getName() + ")");
+      if (log.isDebugEnabled()) {
+         log.debugf("Start called, nothing to do here(%s)", getName());
       }
    }
 
    @Override
    public void stop() {
-      if (log.isInfoEnabled()) {
-         log.info("Stop called, nothing to do here(" + getName() + ")");
+      if (log.isDebugEnabled()) {
+         log.debugf("Stop called, nothing to do here(%s)", getName());
       }
    }
 
@@ -352,6 +402,25 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       return this;
    }
 
+   @Override
+   public NotifyingFuture<V> getAsync(final K key) {
+      assertRemoteCacheManagerIsStarted();
+      final NotifyingFutureImpl<V> result = new NotifyingFutureImpl<V>();
+      Future future = executorService.submit(new Callable() {
+         @Override
+         public Object call() throws Exception {
+            V toReturn = get(key);
+            result.notifyFutureCompletion();
+            return toReturn;
+         }
+      });
+      result.setExecuting(future);
+      return result;
+   }
+
+   public PingOperation.PingResult ping(Transport transport) {
+      return operationsFactory.newPingOperation(transport).execute();
+   }
 
    private byte[] obj2bytes(Object o, boolean isKey) {
       try {
@@ -388,9 +457,18 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       if (!remoteCacheManager.isStarted()) {
          String message = "Cannot perform operations on a cache associated with an unstarted RemoteCacheManager. Use RemoteCacheManager.start before using the remote cache.";
          if (log.isInfoEnabled()) {
-            log.info(message);
+            log.unstartedRemoteCacheManager();
          }
          throw new RemoteCacheManagerNotStartedException(message);
       }
    }
+
+   @Override
+   protected void set(K key, V value) {
+      // no need to optimize the put operation: all invocations are already non-return by default,
+      // see org.infinispan.client.hotrod.Flag.FORCE_RETURN_VALUE
+      // Warning: never invoke put(K,V) in this scope or we'll get a stackoverflow.
+      put(key, value, defaultLifespan, MILLISECONDS, defaultMaxIdleTime, MILLISECONDS);
+   }
+
 }

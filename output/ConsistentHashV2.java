@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
+ * Copyright 2011 Red Hat Inc. and/or its affiliates and other
  * contributors as indicated by the @author tags. All rights reserved.
  * See the copyright.txt in the distribution for a full listing of
  * individual contributors.
@@ -20,40 +20,19 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.infinispan.client.hotrod.impl;
+package org.infinispan.client.hotrod.impl.consistenthash;
 
-import org.infinispan.client.hotrod.VersionedValue;
+import org.infinispan.commons.hash.MurmurHash3;
 
 /**
- * @author Mircea.Markus@jboss.com
- * @since 4.1
+ * Version 2 of the ConsistentHash function.  Uses MurmurHash3.
+ *
+ * @author manik
+ * @see org.infinispan.commons.hash.MurmurHash3
+ * @since 5.0
  */
-public class VersionedValueImpl<V> implements VersionedValue<V> {
-
-   private long version;
-
-   private V value;
-
-   public VersionedValueImpl(long version, V value) {
-      this.version = version;
-      this.value = value;
-   }
-
-   @Override
-   public long getVersion() {
-      return version;
-   }
-
-   @Override
-   public V getValue() {
-      return value;
-   }
-
-   @Override
-   public String toString() {
-      return "VersionedValueImpl{" +
-            "version=" + version +
-            ", value=" + value +
-            '}';
+public class ConsistentHashV2 extends ConsistentHashV1 {
+   public ConsistentHashV2() {
+      hash = new MurmurHash3();
    }
 }
