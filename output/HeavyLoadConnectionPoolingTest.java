@@ -41,6 +41,8 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
 import static org.testng.AssertJUnit.assertEquals;
 
 /**
@@ -54,7 +56,7 @@ public class HeavyLoadConnectionPoolingTest extends SingleCacheManagerTest {
    private RemoteCache<Object, Object> remoteCache;
    private GenericKeyedObjectPool connectionPool;
 
-   @AfterMethod
+   @AfterMethod(alwaysRun=true)
    @Override
    protected void clearContent() {
    }
@@ -84,12 +86,12 @@ public class HeavyLoadConnectionPoolingTest extends SingleCacheManagerTest {
       return cacheManager;
    }
 
-   @AfterClass
+   @AfterClass(alwaysRun=true)
    @Override
    protected void destroyAfterClass() {
       super.destroyAfterClass();
-      remoteCacheManager.stop();
-      hotRodServer.stop();
+      killRemoteCacheManager(remoteCacheManager);
+      killServers(hotRodServer);
    }
 
    public void testHeavyLoad() throws InterruptedException, ExecutionException {
@@ -114,11 +116,15 @@ public class HeavyLoadConnectionPoolingTest extends SingleCacheManagerTest {
       }
 
       //now wait for the idle thread to wake up and clean them
-      // the eviction thread cleans up at most 10 connections at a time, so we need to let it run at least 2 times
-      Thread.sleep(500 * 3);
 
-      assertEquals(1, connectionPool.getNumIdle());
-      assertEquals(0, connectionPool.getNumActive());
+      eventually(new Condition() {
+         @Override
+         public boolean isSatisfied() throws Exception {
+            int numIdle = connectionPool.getNumIdle();
+            int numActive = connectionPool.getNumActive();
+            return numIdle == 0 && numActive == 0;
+         }
+      });
    }
 
    public static class ConstantDelayTransportInterceptor extends CommandInterceptor {

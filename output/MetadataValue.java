@@ -23,13 +23,19 @@
 package org.infinispan.client.hotrod;
 
 /**
- * Besides the key and value, also contains an version. To be used in versioned operations, e.g. {@link
- * org.infinispan.client.hotrod.RemoteCache#removeWithVersion(Object, long)}.
+ * Besides the value, also contains a version and expiration information.
  *
- * @author Mircea.Markus@jboss.com
+ * @author Tristan Tarrant
+ * @since 5.2
  */
-public interface VersionedValue<V> {
-   long getVersion();
+public interface MetadataValue<V> extends VersionedValue<V> {
 
-   V getValue();
+   long getCreated();
+
+   int getLifespan();
+
+   long getLastUsed();
+
+   int getMaxIdle();
+
 }

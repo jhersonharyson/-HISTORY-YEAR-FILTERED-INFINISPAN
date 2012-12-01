@@ -43,13 +43,13 @@ import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingOperation.PingResult;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.CodecFactory;
-import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.executors.ExecutorFactory;
 import org.infinispan.marshall.Marshaller;
 import org.infinispan.util.FileLookupFactory;
+import org.infinispan.util.SysPropertyActions;
 import org.infinispan.util.Util;
 
 /**
@@ -160,8 +160,9 @@ public class RemoteCacheManager implements BasicCacheContainer {
    private volatile boolean started = false;
    private boolean forceReturnValueDefault = false;
    private ExecutorService asyncExecutorService;
-   private final Map<String, RemoteCacheImpl> cacheName2RemoteCache = new HashMap<String, RemoteCacheImpl>();
-   private AtomicInteger topologyId = new AtomicInteger();
+   private final Map<String, RemoteCacheHolder> cacheName2RemoteCache = new HashMap<String, RemoteCacheHolder>();
+   // Use an invalid topologyID (-1) so we always get a topology update on connection.
+   private AtomicInteger topologyId = new AtomicInteger(-1);
    private ClassLoader classLoader;
    private Codec codec;
 
@@ -176,7 +177,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(Marshaller marshaller, Properties props, boolean start) {
       this(marshaller, props, start, Thread.currentThread().getContextClassLoader(), null);
    }
-   
+
    /**
     * Builds a remote cache manager that relies on the provided {@link Marshaller} for marshalling
     * keys and values to be send over to the remote Infinispan cluster.
@@ -220,13 +221,14 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(Properties props, boolean start) {
 	   this(props, start, Thread.currentThread().getContextClassLoader(), null);
    }
-   
+
    /**
     * Build a cache manager based on supplied properties.
     */
    public RemoteCacheManager(Properties props, boolean start, ClassLoader classLoader, ExecutorFactory asyncExecutorFactory) {
       this.config = new ConfigurationProperties(props);
       this.classLoader = classLoader;
+      forceReturnValueDefault = config.getForceReturnValues();
       if (asyncExecutorFactory != null) this.asyncExecutorService = asyncExecutorFactory.getExecutor(props);
       if (start) start();
    }
@@ -237,7 +239,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(Properties props) {
       this(props, Thread.currentThread().getContextClassLoader());
    }
-   
+
    /**
     * Same as {@link #RemoteCacheManager(java.util.Properties, boolean)}, and it also starts the cache (start==true).
     */
@@ -303,7 +305,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(String host, int port, boolean start) {
 	   this(host, port, start, Thread.currentThread().getContextClassLoader());
    }
-   
+
    /**
     * Creates a remote cache manager aware of the Hot Rod server listening at host:port.
     *
@@ -314,7 +316,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
       this.classLoader = classLoader;
       if (start) start();
    }
-   
+
    /**
     * Same as {@link #RemoteCacheManager(String, int, boolean)} with start=true.
     */
@@ -336,7 +338,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(String servers, boolean start) {
 	   this(servers, start, Thread.currentThread().getContextClassLoader());
    }
-   
+
    /**
     * The given string should have the following structure: "host1:port2;host:port2...". Every host:port defines a
     * server.
@@ -353,7 +355,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(String servers) {
 	   this(servers, Thread.currentThread().getContextClassLoader());
    }
-   
+
    /**
     * Same as {@link #RemoteCacheManager(String, boolean)}, with start=true.
     */
@@ -371,7 +373,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(URL config, boolean start) {
 	   this(config, start, Thread.currentThread().getContextClassLoader());
    }
-   
+
    /**
     * Same as {@link #RemoteCacheManager(java.util.Properties)}, but it will try to lookup the config properties in
     * supplied URL.
@@ -407,7 +409,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
    public RemoteCacheManager(URL config) {
 	   this(config, Thread.currentThread().getContextClassLoader());
    }
-   
+
    /**
     * Same as {@link #RemoteCacheManager(java.net.URL)} and it also starts the cache (start==true).
     *
@@ -425,6 +427,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
     * @return a cache instance identified by cacheName or null if the cache
     *         name has not been defined
     */
+   @Override
    public <K, V> RemoteCache<K, V> getCache(String cacheName) {
       return getCache(cacheName, forceReturnValueDefault);
    }
@@ -439,6 +442,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
     * @return a remote cache instance that can be used to send requests to the
     *         default cache in the server
     */
+   @Override
    public <K, V> RemoteCache<K, V> getCache() {
       return getCache(forceReturnValueDefault);
    }
@@ -450,6 +454,10 @@ public class RemoteCacheManager implements BasicCacheContainer {
 
    @Override
    public void start() {
+      // Workaround for JDK6 NPE: http://bugs.sun.com/view_bug.do?bug_id=6427854
+      SysPropertyActions.setProperty("sun.nio.ch.bugLevel", "\"\"");
+
+      forceReturnValueDefault = config.getForceReturnValues();
       codec = CodecFactory.getCodec(config.getProtocolVersion());
 
       String factory = config.getTransportFactory();
@@ -468,11 +476,9 @@ public class RemoteCacheManager implements BasicCacheContainer {
          asyncExecutorService = executorFactory.getExecutor(config.getProperties());
       }
 
-      forceReturnValueDefault = config.getForceReturnValues();
-
       synchronized (cacheName2RemoteCache) {
-         for (RemoteCacheImpl remoteCache : cacheName2RemoteCache.values()) {
-            startRemoteCache(remoteCache);
+         for (RemoteCacheHolder rcc : cacheName2RemoteCache.values()) {
+            startRemoteCache(rcc);
          }
       }
       started = true;
@@ -499,24 +505,29 @@ public class RemoteCacheManager implements BasicCacheContainer {
          throw new HotRodClientException("Issues configuring from client hotrod-client.properties", e);
       }
       config = new ConfigurationProperties(properties);
+      forceReturnValueDefault = config.getForceReturnValues();
    }
 
-   private <K, V> RemoteCache<K, V> createRemoteCache(String cacheName, boolean forceReturnValue) {
+   @SuppressWarnings("unchecked")
+   private <K, V> RemoteCache<K, V> createRemoteCache(String cacheName, Boolean forceReturnValueOverride) {
       synchronized (cacheName2RemoteCache) {
          if (!cacheName2RemoteCache.containsKey(cacheName)) {
             RemoteCacheImpl<K, V> result = new RemoteCacheImpl<K, V>(this, cacheName);
-            startRemoteCache(result);
-            // If ping not successful assume that the cache does not exist
-            // Default cache is always started, so don't do for it
-            if (!cacheName.equals(BasicCacheContainer.DEFAULT_CACHE_NAME) &&
-                  ping(result) == PingResult.CACHE_DOES_NOT_EXIST) {
-               return null;
-            } else {
-               cacheName2RemoteCache.put(cacheName, result);
-               return result;
+            RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride == null ? forceReturnValueDefault : forceReturnValueOverride);
+            startRemoteCache(rcc);
+            if (config.getPingOnStartup()) {
+               // If ping not successful assume that the cache does not exist
+               // Default cache is always started, so don't do for it
+               if (!cacheName.equals(BasicCacheContainer.DEFAULT_CACHE_NAME) &&
+                     ping(result) == PingResult.CACHE_DOES_NOT_EXIST) {
+                  return null;
+               }
             }
+            // If ping on startup is disabled, or cache is defined in server
+            cacheName2RemoteCache.put(cacheName, rcc);
+            return result;
          } else {
-            return cacheName2RemoteCache.get(cacheName);
+            return (RemoteCache<K, V>) cacheName2RemoteCache.get(cacheName).remoteCache;
          }
       }
    }
@@ -526,21 +537,31 @@ public class RemoteCacheManager implements BasicCacheContainer {
          return PingResult.FAIL;
       }
 
-      Transport transport = transportFactory.getTransport();
-      try {
-         return cache.ping(transport);
-      } finally {
-        transportFactory.releaseTransport(transport);
-      }
+      return cache.ping();
    }
 
-   private <K, V> void startRemoteCache(RemoteCacheImpl<K, V> result) {
+   private void startRemoteCache(RemoteCacheHolder remoteCacheHolder) {
+      RemoteCacheImpl<?, ?> remoteCache = remoteCacheHolder.remoteCache;
       OperationsFactory operationsFactory = new OperationsFactory(
-            transportFactory, result.getName(), topologyId, forceReturnValueDefault, codec);
-      result.init(marshaller, asyncExecutorService, operationsFactory, config.getKeySizeEstimate(), config.getValueSizeEstimate());
+            transportFactory, remoteCache.getName(), topologyId, remoteCacheHolder.forceReturnValue, codec);
+      remoteCache.init(marshaller, asyncExecutorService, operationsFactory, config.getKeySizeEstimate(), config.getValueSizeEstimate());
    }
 
    private void setMarshaller(Marshaller marshaller) {
       this.marshaller = marshaller;
+   }
+
+   public Marshaller getMarshaller() {
+      return marshaller;
+   }
+}
+
+class RemoteCacheHolder {
+   final RemoteCacheImpl<?, ?> remoteCache;
+   final boolean forceReturnValue;
+
+   RemoteCacheHolder(RemoteCacheImpl<?, ?> remoteCache, boolean forceReturnValue) {
+      this.remoteCache = remoteCache;
+      this.forceReturnValue = forceReturnValue;
    }
 }

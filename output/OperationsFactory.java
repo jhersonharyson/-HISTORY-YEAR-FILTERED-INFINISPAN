@@ -31,6 +31,8 @@ import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -44,7 +46,7 @@ public class OperationsFactory implements HotRodConstants {
 
    private static final Flag[] FORCE_RETURN_VALUE = {Flag.FORCE_RETURN_VALUE};
 
-   private final ThreadLocal<Flag[]> flagsMap = new ThreadLocal<Flag[]>();
+   private final ThreadLocal<List<Flag>> flagsMap = new ThreadLocal<List<Flag>>();
 
    private final TransportFactory transportFactory;
 
@@ -93,6 +95,11 @@ public class OperationsFactory implements HotRodConstants {
             codec, transportFactory, key, cacheNameBytes, topologyId, flags());
    }
 
+   public GetWithMetadataOperation newGetWithMetadataOperation(byte[] key) {
+      return new GetWithMetadataOperation(
+            codec, transportFactory, key, cacheNameBytes, topologyId, flags());
+   }
+
    public StatsOperation newStatsOperation() {
       return new StatsOperation(
             codec, transportFactory, cacheNameBytes, topologyId, flags());
@@ -134,20 +141,56 @@ public class OperationsFactory implements HotRodConstants {
             codec, transportFactory, cacheNameBytes, topologyId, flags(), size);
    }
 
+   /**
+    * Construct a ping request directed to a particular node.
+    *
+    * @param transport represents the node to which the operation is directed
+    * @return a ping operation for a particular node
+    */
    public PingOperation newPingOperation(Transport transport) {
       return new PingOperation(codec, topologyId, transport, cacheNameBytes);
    }
 
+   /**
+    * Construct a fault tolerant ping request. This operation should be capable
+    * to deal with nodes being down, so it will find the first node successful
+    * node to respond to the ping.
+    *
+    * @return a ping operation for the cluster
+    */
+   public FaultTolerantPingOperation newFaultTolerantPingOperation() {
+      return new FaultTolerantPingOperation(
+            codec, transportFactory, cacheNameBytes, topologyId, flags());
+   }
+
    private Flag[] flags() {
-      Flag[] flags = this.flagsMap.get();
+      List<Flag> flags = this.flagsMap.get();
       this.flagsMap.remove();
-      if (flags == null && forceReturnValue) {
-         return FORCE_RETURN_VALUE;
+      if (forceReturnValue) {
+         if (flags == null) {
+            return FORCE_RETURN_VALUE;
+         } else {
+            flags.add(Flag.FORCE_RETURN_VALUE);
+         }
       }
-      return flags;
+      return flags != null ? flags.toArray(new Flag[0]) : null;
    }
 
    public void setFlags(Flag[] flags) {
-      this.flagsMap.set(flags);
+      List<Flag> list = new ArrayList<Flag>();
+      for(Flag flag : flags)
+         list.add(flag);
+      this.flagsMap.set(list);
+   }
+
+   public void addFlags(Flag... flags) {
+      List<Flag> list = this.flagsMap.get();
+      if (list == null) {
+         list = new ArrayList<Flag>();
+         this.flagsMap.set(list);
+      }
+      for(Flag flag : flags)
+         list.add(flag);
+
    }
 }

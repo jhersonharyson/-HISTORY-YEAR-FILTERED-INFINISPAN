@@ -38,22 +38,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 4.1
  */
 @Immutable
-public class RemoveOperation extends AbstractKeyOperation {
+public class RemoveOperation extends AbstractKeyOperation<byte[]> {
 
    public RemoveOperation(Codec codec, TransportFactory transportFactory,
             byte[] key, byte[] cacheName, AtomicInteger topologyId, Flag[] flags) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags);
+      super(codec, transportFactory, key, cacheName, true, topologyId, flags);
    }
 
    @Override
-   public Object executeOperation(Transport transport) {
-      byte[] result = null;
+   public byte[] executeOperation(Transport transport) {
       short status = sendKeyOperation(key, transport, REMOVE_REQUEST, REMOVE_RESPONSE);
-      if (status == KEY_DOES_NOT_EXIST_STATUS) {
-         result = null;
-      } else if (status == NO_ERROR_STATUS) {
-         result = returnPossiblePrevValue(transport);
-      }
-      return result;
+      byte[] result = returnPossiblePrevValue(transport);
+      if (status == KEY_DOES_NOT_EXIST_STATUS)
+         return null;
+
+      return result; // NO_ERROR_STATUS
    }
 }

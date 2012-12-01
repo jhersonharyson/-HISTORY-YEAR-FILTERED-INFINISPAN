@@ -33,6 +33,7 @@ import org.testng.annotations.Test;
 
 import java.util.Map;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.*;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
@@ -59,11 +60,11 @@ public class HotRodStatisticsTest {
       remoteCache = rcm.getCache();
    }
 
-   @AfterMethod
+   @AfterMethod(alwaysRun = true)
    void tearDown() {
       TestingUtil.killCacheManagers(cacheContainer);
-      rcm.stop();
-      hotrodServer.stop();
+      killRemoteCacheManager(rcm);
+      killServers(hotrodServer);
    }
 
    public void testAllStatsArePresent() {
@@ -142,4 +143,15 @@ public class HotRodStatisticsTest {
       assertEquals((Integer)4, remoteCache.stats().getIntStatistic(ServerStatistics.REMOVE_HITS));
       assertEquals((Integer)1, remoteCache.stats().getIntStatistic(ServerStatistics.REMOVE_MISSES));
    }
+
+   public void testNumberOfEntriesAfterClear() {
+      assertEquals((Integer)0, remoteCache.stats().getIntStatistic(ServerStatistics.CURRENT_NR_OF_ENTRIES));
+      remoteCache.put("k", "v");
+      remoteCache.put("k2", "v");
+      assertEquals((Integer)2, remoteCache.stats().getIntStatistic(ServerStatistics.CURRENT_NR_OF_ENTRIES));
+      remoteCache.clear();
+      assertEquals((Integer)0, remoteCache.stats().getIntStatistic(ServerStatistics.CURRENT_NR_OF_ENTRIES));
+      assertEquals((Integer)2, remoteCache.stats().getIntStatistic(ServerStatistics.TOTAL_NR_OF_ENTRIES));
+   }
+
 }

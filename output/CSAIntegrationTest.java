@@ -25,15 +25,17 @@ package org.infinispan.client.hotrod;
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
-import org.infinispan.config.Configuration;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.container.DataContainer;
 import org.infinispan.distribution.DistributionManager;
+import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.CacheContainer;
 import org.infinispan.marshall.Marshaller;
 import org.infinispan.marshall.jboss.GenericJBossMarshaller;
+import org.infinispan.remoting.transport.Address;
 import org.infinispan.server.hotrod.HotRodServer;
-import org.infinispan.test.TestingUtil;
 import org.infinispan.util.ByteArrayKey;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -51,6 +53,9 @@ import java.util.Random;
 
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertNotNull;
+
+import static org.infinispan.test.TestingUtil.*;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.*;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -75,24 +80,24 @@ public class CSAIntegrationTest extends HitsAwareCacheManagersTest {
       m = new GenericJBossMarshaller();
    }
 
-   @AfterTest   
+   @AfterTest(alwaysRun = true)
    public void destroyMarshaller() {
       m = null;
    }
 
-   @AfterMethod
+   @AfterMethod(alwaysRun = true)
    @Override
    protected void clearContent() throws Throwable {
    }
 
    @Override
    protected void createCacheManagers() throws Throwable {
-      Configuration config = getDefaultClusteredConfig(Configuration.CacheMode.DIST_SYNC);
-      config.setNumOwners(1);
-      config.setUnsafeUnreliableReturnValues(true);
-      addClusterEnabledCacheManager(config);
-      addClusterEnabledCacheManager(config);
-      addClusterEnabledCacheManager(config);
+      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
+      builder.clustering().hash().numOwners(1);
+      builder.unsafe().unreliableReturnValues(true);
+      addClusterEnabledCacheManager(builder);
+      addClusterEnabledCacheManager(builder);
+      addClusterEnabledCacheManager(builder);
 
       hotRodServer1 = TestHelper.startHotRodServer(manager(0));
       hrServ2CacheManager.put(new InetSocketAddress(hotRodServer1.getHost(), hotRodServer1.getPort()), manager(0));
@@ -105,27 +110,27 @@ public class CSAIntegrationTest extends HitsAwareCacheManagersTest {
       assert manager(1).getCache() != null;
       assert manager(2).getCache() != null;
 
-      TestingUtil.blockUntilViewReceived(manager(0).getCache(), 3, 10000);
-      TestingUtil.blockUntilCacheStatusAchieved(manager(0).getCache(), ComponentStatus.RUNNING, 10000);
-      TestingUtil.blockUntilCacheStatusAchieved(manager(1).getCache(), ComponentStatus.RUNNING, 10000);
-      TestingUtil.blockUntilCacheStatusAchieved(manager(2).getCache(), ComponentStatus.RUNNING, 10000);
+      blockUntilViewReceived(manager(0).getCache(), 3);
+      blockUntilCacheStatusAchieved(manager(0).getCache(), ComponentStatus.RUNNING, 10000);
+      blockUntilCacheStatusAchieved(manager(1).getCache(), ComponentStatus.RUNNING, 10000);
+      blockUntilCacheStatusAchieved(manager(2).getCache(), ComponentStatus.RUNNING, 10000);
 
       manager(0).getCache().put("k", "v");
-      manager(0).getCache().get("k").equals("v");
-      manager(1).getCache().get("k").equals("v");
-      manager(2).getCache().get("k").equals("v");
+      assertEquals("v", cache(0).get("k"));
+      assertEquals("v", cache(1).get("k"));
+      assertEquals("v", cache(2).get("k"));
 
       log.info("Local replication test passed!");
 
       //Important: this only connects to one of the two servers!
       Properties props = new Properties();
       props.put("infinispan.client.hotrod.server_list", "localhost:" + hotRodServer2.getPort() + ";localhost:" + hotRodServer2.getPort());
-      props.put("infinispan.client.hotrod.ping_on_startup", "false");
+      props.put("infinispan.client.hotrod.ping_on_startup", "true");
       setHotRodProtocolVersion(props);
       remoteCacheManager = new RemoteCacheManager(props);
       remoteCache = remoteCacheManager.getCache();
 
-      tcpConnectionFactory = (TcpTransportFactory) TestingUtil.extractField(remoteCacheManager, "transportFactory");
+      tcpConnectionFactory = (TcpTransportFactory) extractField(remoteCacheManager, "transportFactory");
    }
 
    protected void setHotRodProtocolVersion(Properties props) {
@@ -135,27 +140,13 @@ public class CSAIntegrationTest extends HitsAwareCacheManagersTest {
    @AfterClass(alwaysRun = true)
    @Override
    protected void destroy() {
-      try {
-         if (remoteCacheManager != null) remoteCacheManager.stop();
-      } finally {
-         try {
-            try {
-               if (hotRodServer1 != null) hotRodServer1.stop();
-            } finally {
-               try {
-                  if (hotRodServer2 != null) hotRodServer2.stop();
-               } finally {
-                  if (hotRodServer3 != null) hotRodServer3.stop();
-               }
-            }
-         } finally {
-            super.destroy();
-         }
-      }
+      killRemoteCacheManager(remoteCacheManager);
+      killServers(hotRodServer1, hotRodServer2, hotRodServer3);
+      super.destroy();
    }
 
    public void testHashInfoRetrieved() throws InterruptedException {
-      assert tcpConnectionFactory.getServers().size() == 3;
+      assertEquals(3, tcpConnectionFactory.getServers().size());
       for (int i = 0; i < 10; i++) {
          remoteCache.put("k", "v");
          if (tcpConnectionFactory.getServers().size() == 3) break;
@@ -171,7 +162,6 @@ public class CSAIntegrationTest extends HitsAwareCacheManagersTest {
       assert remoteCache.get("k").equals("v");
    }
 
-
    @Test(dependsOnMethods = "testCorrectSetup")
    public void testHashFunctionReturnsSameValues() {
       for (int i = 0; i < 1000; i++) {
@@ -181,7 +171,14 @@ public class CSAIntegrationTest extends HitsAwareCacheManagersTest {
          CacheContainer cacheContainer = hrServ2CacheManager.get(serverAddress);
          assertNotNull("For server address " + serverAddress + " found " + cacheContainer + ". Map is: " + hrServ2CacheManager, cacheContainer);
          DistributionManager distributionManager = cacheContainer.getCache().getAdvancedCache().getDistributionManager();
-         assert distributionManager.getLocality(key).isLocal();
+         Address clusterAddress = cacheContainer.getCache().getAdvancedCache().getRpcManager().getAddress();
+
+         ConsistentHash serverCh = distributionManager.getReadConsistentHash();
+         int numSegments = serverCh.getNumSegments();
+         int keySegment = serverCh.getSegment(key);
+         Address serverOwner = serverCh.locatePrimaryOwnerForSegment(keySegment);
+         Address serverPreviousOwner = serverCh.locatePrimaryOwnerForSegment((keySegment - 1 + numSegments) % numSegments);
+         assert clusterAddress.equals(serverOwner) || clusterAddress.equals(serverPreviousOwner);
          tcpConnectionFactory.releaseTransport(transport);
       }
    }

@@ -23,7 +23,8 @@
 package org.infinispan.client.hotrod;
 
 import org.infinispan.Cache;
-import org.infinispan.config.Configuration;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.marshall.Marshaller;
 import org.infinispan.marshall.jboss.JBossMarshaller;
@@ -31,7 +32,8 @@ import org.infinispan.server.core.CacheValue;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
-import org.infinispan.util.ByteArrayKey;            
+import org.infinispan.util.ByteArrayKey;
+import org.infinispan.util.concurrent.NotifyingFuture;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.AfterClass;
@@ -42,8 +44,10 @@ import java.util.Arrays;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
+import static org.infinispan.test.TestingUtil.k;
 import static org.infinispan.test.TestingUtil.v;
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertNull;
 
 
@@ -68,9 +72,9 @@ public class HotRodIntegrationTest extends SingleCacheManagerTest {
 
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
-      Configuration standaloneConfig = getDefaultStandaloneConfig(false);
+      ConfigurationBuilder builder = getDefaultStandaloneCacheConfig(false);
       cacheManager = TestCacheManagerFactory.createLocalCacheManager(false);
-      cacheManager.defineConfiguration(CACHE_NAME, standaloneConfig);
+      cacheManager.defineConfiguration(CACHE_NAME, builder.build());
       defaultCache = cacheManager.getCache();
       cache = cacheManager.getCache(CACHE_NAME);
 
@@ -92,10 +96,10 @@ public class HotRodIntegrationTest extends SingleCacheManagerTest {
    }
 
 
-   @AfterClass 
+   @AfterClass(alwaysRun = true)
    public void testDestroyRemoteCacheFactory() {
-      remoteCacheManager.stop();
-      hotrodServer.stop();
+      HotRodClientTestingUtil.killRemoteCacheManager(remoteCacheManager);
+      HotRodClientTestingUtil.killServers(hotrodServer);
    }
 
    public void testPut() throws Exception {
@@ -152,6 +156,32 @@ public class HotRodIntegrationTest extends SingleCacheManagerTest {
       assert !entry3.equals(entry2);
    }
 
+   public void testGetWithMetadata() {
+      MetadataValue<?> value = remoteCache.getWithMetadata("aKey");
+      assertNull("expected null but received: " + value, value);
+      remoteCache.put("aKey", "aValue");
+      assert remoteCache.get("aKey").equals("aValue");
+      MetadataValue<?> immortalValue = remoteCache.getWithMetadata("aKey");
+      assertNotNull(immortalValue);
+      assertEquals("aValue", immortalValue.getValue());
+      assertEquals(-1, immortalValue.getLifespan());
+      assertEquals(-1, immortalValue.getMaxIdle());
+
+      remoteCache.put("bKey", "bValue", 60, TimeUnit.SECONDS);
+      MetadataValue<?> mortalValueWithLifespan = remoteCache.getWithMetadata("bKey");
+      assertNotNull(mortalValueWithLifespan);
+      assertEquals("bValue", mortalValueWithLifespan.getValue());
+      assertEquals(60, mortalValueWithLifespan.getLifespan());
+      assertEquals(-1, mortalValueWithLifespan.getMaxIdle());
+
+      remoteCache.put("cKey", "cValue", 60, TimeUnit.SECONDS, 30, TimeUnit.SECONDS);
+      MetadataValue<?> mortalValueWithMaxIdle = remoteCache.getWithMetadata("cKey");
+      assertNotNull(mortalValueWithMaxIdle);
+      assertEquals("cValue", mortalValueWithMaxIdle.getValue());
+      assertEquals(60, mortalValueWithMaxIdle.getLifespan());
+      assertEquals(30, mortalValueWithMaxIdle.getMaxIdle());
+   }
+
    public void testReplace() {
       assert null == remoteCache.replace("aKey", "anotherValue");
       remoteCache.put("aKey", "aValue");
@@ -184,9 +214,12 @@ public class HotRodIntegrationTest extends SingleCacheManagerTest {
       String newValue = v(m, 2);
       assert remoteCache.replaceWithVersion(key, newValue, valueBinary.getVersion(), lifespanSecs);
 
-      while (System.currentTimeMillis() < startTime + lifespan - 10) {
-         assertEquals(v(m, 2), remoteCache.get(key));
-         Thread.sleep(50);
+      while (true) {
+         Object value = remoteCache.get(key);
+         if (System.currentTimeMillis() >= startTime + lifespan)
+            break;
+         assertEquals(v(m, 2), value);
+         Thread.sleep(100);
       }
 
       while (System.currentTimeMillis() < startTime + lifespan + 2000) {
@@ -195,6 +228,37 @@ public class HotRodIntegrationTest extends SingleCacheManagerTest {
       }
 
       assertNull(remoteCache.get(key));
+   }
+
+   public void testReplaceWithVersionWithLifespanAsync(Method m) throws Exception {
+      int lifespanInSecs = 1; //seconds
+      final String k = k(m), v = v(m), newV = v(m, 2);
+      assertNull(remoteCache.replace(k, v));
+
+      remoteCache.put(k, v);
+      VersionedValue valueBinary = remoteCache.getVersioned(k);
+      long lifespan = TimeUnit.SECONDS.toMillis(lifespanInSecs);
+      long startTime = System.currentTimeMillis();
+      NotifyingFuture<Boolean> future = remoteCache.replaceWithVersionAsync(
+            k, newV, valueBinary.getVersion(), lifespanInSecs);
+      assert future.get();
+
+      while (true) {
+         VersionedValue entry2 = remoteCache.getVersioned(k);
+         if (System.currentTimeMillis() >= startTime + lifespan)
+            break;
+         // version should have changed; value should have changed
+         assert entry2.getVersion() != valueBinary.getVersion();
+         assertEquals(newV, entry2.getValue());
+         Thread.sleep(100);
+      }
+
+      while (System.currentTimeMillis() < startTime + lifespan + 2000) {
+         if (remoteCache.get(k) == null) break;
+         Thread.sleep(50);
+      }
+
+      assertNull(remoteCache.getVersioned(k));
    }
 
    public void testRemoveIfUnmodified() {

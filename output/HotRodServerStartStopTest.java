@@ -22,12 +22,15 @@
  */
 package org.infinispan.client.hotrod;
 
-import org.infinispan.config.Configuration;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
 import static org.testng.AssertJUnit.assertEquals;
 
 /**
@@ -39,16 +42,16 @@ public class HotRodServerStartStopTest extends MultipleCacheManagersTest {
    private HotRodServer hotRodServer1;
    private HotRodServer hotRodServer2;
 
-   @AfterMethod
+   @AfterMethod(alwaysRun = true)
    @Override
    protected void clearContent() throws Throwable {
    }
 
    @Override
    protected void createCacheManagers() throws Throwable {
-      Configuration config = getDefaultClusteredConfig(Configuration.CacheMode.DIST_SYNC);
-      addClusterEnabledCacheManager(config);
-      addClusterEnabledCacheManager(config);
+      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
+      addClusterEnabledCacheManager(builder);
+      addClusterEnabledCacheManager(builder);
 
       hotRodServer1 = TestHelper.startHotRodServer(manager(0));
       hotRodServer2 = TestHelper.startHotRodServer(manager(1));
@@ -67,11 +70,11 @@ public class HotRodServerStartStopTest extends MultipleCacheManagersTest {
       RemoteCache<Object, Object> remoteCache = remoteCacheManager.getCache();
       remoteCache.put("k", "v");
       assertEquals("v", remoteCache.get("k"));
+      killRemoteCacheManager(remoteCacheManager);
    }
 
    @Test (dependsOnMethods = "testTouchServer")
    public void testHrServerStop() {
-      hotRodServer1.stop();
-      hotRodServer2.stop();
+      killServers(hotRodServer1, hotRodServer2);
    }
 }

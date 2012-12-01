@@ -29,7 +29,8 @@ import org.infinispan.affinity.KeyGenerator;
 import org.infinispan.client.hotrod.VersionedValue;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
-import org.infinispan.config.Configuration;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.marshall.Marshaller;
 import org.infinispan.marshall.jboss.JBossMarshaller;
 import org.infinispan.remoting.transport.Address;
@@ -39,6 +40,7 @@ import org.testng.annotations.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.testng.Assert.assertEquals;
@@ -51,10 +53,10 @@ import static org.testng.Assert.assertEquals;
 public class DistributionRetryTest extends AbstractRetryTest {
 
    @Override
-   protected Configuration getCacheConfig() {
-      Configuration config = getDefaultClusteredConfig(Configuration.CacheMode.DIST_SYNC);
-      config.setNumOwners(1);
-      return config;
+   protected ConfigurationBuilder getCacheConfig() {
+      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
+      builder.clustering().hash().numOwners(1);
+      return builder;
    }
 
    public void testGet() throws Exception {
@@ -121,10 +123,12 @@ public class DistributionRetryTest extends AbstractRetryTest {
    private Object generateKeyAndShutdownServer() throws IOException, ClassNotFoundException, InterruptedException {
       resetStats();
       Cache<Object,Object> cache = manager(1).getCache();
-      KeyAffinityService kaf = KeyAffinityServiceFactory.newKeyAffinityService(cache, Executors.newSingleThreadExecutor(), new ByteKeyGenerator(), 2, true);
+      ExecutorService ex = Executors.newSingleThreadExecutor();
+      KeyAffinityService kaf = KeyAffinityServiceFactory.newKeyAffinityService(cache, ex, new ByteKeyGenerator(), 2, true);
       Address address = cache.getAdvancedCache().getRpcManager().getTransport().getAddress();
       byte[] keyBytes = (byte[]) kaf.getKeyForAddress(address);
       String key = ByteKeyGenerator.getStringObject(keyBytes);
+      ex.shutdownNow();
       kaf.stop();
 
       remoteCache.put(key, "v");

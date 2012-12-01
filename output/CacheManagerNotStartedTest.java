@@ -23,7 +23,7 @@
 package org.infinispan.client.hotrod;
 
 import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
-import org.infinispan.config.Configuration;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
@@ -33,6 +33,9 @@ import org.testng.annotations.AfterTest;
 import org.testng.annotations.Test;
 
 import java.util.HashMap;
+
+import static org.infinispan.test.TestingUtil.*;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.*;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -50,27 +53,24 @@ public class CacheManagerNotStartedTest extends SingleCacheManagerTest {
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       cacheManager = TestCacheManagerFactory.createLocalCacheManager(false);
-      cacheManager.defineConfiguration(CACHE_NAME, new Configuration());
-      hotrodServer = TestHelper.startHotRodServer(cacheManager);
-      remoteCacheManager = new RemoteCacheManager("localhost:" + hotrodServer.getHost(), false);
+      cacheManager.defineConfiguration(CACHE_NAME, new ConfigurationBuilder().build());
       return cacheManager;
    }
 
-   @AfterTest(alwaysRun = true)
-   public void release() {
-      if (cacheManager != null) cacheManager.stop();
-      if (hotrodServer != null) hotrodServer.stop();
+   @Override
+   protected void setup() throws Exception {
+      super.setup();
+      hotrodServer = TestHelper.startHotRodServer(cacheManager);
+      remoteCacheManager = new RemoteCacheManager(
+            "localhost:" + hotrodServer.getHost(), false);
    }
 
-   @AfterClass
+   @AfterClass(alwaysRun = true)
    @Override
    protected void destroyAfterClass() {
       super.destroyAfterClass();
-      try {
-         remoteCacheManager.stop();
-      } catch (Exception e) {
-         e.printStackTrace();
-      }
+      killRemoteCacheManager(remoteCacheManager);
+      killServers(hotrodServer);
    }
 
    public void testGetCacheOperations() {
@@ -91,55 +91,55 @@ public class CacheManagerNotStartedTest extends SingleCacheManagerTest {
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testPut() {
-      cache().put("k", "v");
+      remoteCache().put("k", "v");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testPutAsync() {
-      cache().putAsync("k", "v");
+      remoteCache().putAsync("k", "v");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testGet() {
-      cache().get("k");
+      remoteCache().get("k");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testReplace() {
-      cache().replace("k", "v");
+      remoteCache().replace("k", "v");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testReplaceAsync() {
-      cache().replaceAsync("k", "v");
+      remoteCache().replaceAsync("k", "v");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testPutAll() {
-      cache().putAll(new HashMap<Object, Object>());
+      remoteCache().putAll(new HashMap<Object, Object>());
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testPutAllAsync() {
-      cache().putAllAsync(new HashMap<Object, Object>());
+      remoteCache().putAllAsync(new HashMap<Object, Object>());
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testVersionedGet() {
-      cache().getVersioned("key");
+      remoteCache().getVersioned("key");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testVersionedRemove() {
-      cache().removeWithVersion("key", 12312321l);
+      remoteCache().removeWithVersion("key", 12312321l);
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class)
    public void testVersionedRemoveAsync() {
-      cache().removeWithVersionAsync("key", 12312321l);
+      remoteCache().removeWithVersionAsync("key", 12312321l);
    }
 
-   private RemoteCache<Object, Object> cache() {
+   private RemoteCache<Object, Object> remoteCache() {
       return remoteCacheManager.getCache();
    }
 }

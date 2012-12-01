@@ -28,7 +28,7 @@ import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
-import org.infinispan.config.Configuration;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.CacheContainer;
 import org.infinispan.server.hotrod.HotRodServer;
@@ -51,7 +51,7 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
    RemoteCacheImpl remoteCache;
    protected RemoteCacheManager remoteCacheManager;
    protected TcpTransportFactory tcpConnectionFactory;
-   protected Configuration config;
+   protected ConfigurationBuilder config;
    protected RoundRobinBalancingStrategy strategy;
 
    public AbstractRetryTest() {
@@ -86,6 +86,7 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
       Properties clientConfig = new Properties();
       clientConfig.put("infinispan.client.hotrod.server_list", "localhost:" + hotRodServer2.getPort());
       clientConfig.put("infinispan.client.hotrod.force_return_values", "true");
+      clientConfig.put("infinispan.client.hotrod.connect_timeout", "5");
       clientConfig.put("maxActive",1); //this ensures that only one server is active at a time
 
       remoteCacheManager = new RemoteCacheManager(clientConfig);
@@ -125,5 +126,5 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
       }
    }
 
-   protected abstract Configuration getCacheConfig();
+   protected abstract ConfigurationBuilder getCacheConfig();
 }
