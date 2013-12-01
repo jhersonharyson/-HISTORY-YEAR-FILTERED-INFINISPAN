@@ -1,25 +1,3 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod.impl.operations;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,11 +5,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import net.jcip.annotations.Immutable;
 
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
+import org.infinispan.client.hotrod.exceptions.InvalidResponseException;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.util.logging.BasicLogFactory;
+import org.infinispan.commons.logging.BasicLogFactory;
 import org.jboss.logging.BasicLogger;
 
 /**
@@ -68,19 +47,19 @@ public class PingOperation extends HotRodOperation {
                log.tracef("Successfully validated transport: %s", transport);
             return PingResult.SUCCESS;
          } else {
+            String hexStatus = Integer.toHexString(respStatus);
             if (log.isTraceEnabled())
-               log.tracef("Unknown response status: %s", respStatus);
-            return PingResult.FAIL;
+               log.tracef("Unknown response status: %s", hexStatus);
+
+            throw new InvalidResponseException(
+                  "Unexpected response status: " + hexStatus);
          }
       } catch (HotRodClientException e) {
          if (e.getMessage().contains("CacheNotFoundException"))
             return PingResult.CACHE_DOES_NOT_EXIST;
-         else
-            return PingResult.FAIL;
-      } catch (Exception e) {
-         if (log.isTraceEnabled())
-            log.tracef(e, "Failed to validate transport: %s", transport);
-         return PingResult.FAIL;
+
+         // Any other situation, rethrow the exception
+         throw e;
       }
    }
 

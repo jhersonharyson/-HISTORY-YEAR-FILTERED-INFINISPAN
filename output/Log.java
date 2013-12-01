@@ -1,29 +1,8 @@
-/*
- * JBoss, Home of Professional Open Source.
- * Copyright 2000 - 2011, Red Hat Middleware LLC, and individual contributors
- * as indicated by the @author tags. See the copyright.txt file in the
- * distribution for a full listing of individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
-
 package org.infinispan.client.hotrod.logging;
 
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
+import org.infinispan.commons.CacheConfigurationException;
 import org.jboss.logging.BasicLogger;
 import org.jboss.logging.Cause;
 import org.jboss.logging.LogMessage;
@@ -31,7 +10,6 @@ import org.jboss.logging.Message;
 import org.jboss.logging.MessageLogger;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Set;
 
@@ -75,7 +53,7 @@ public interface Log extends BasicLogger {
    @Message(value = "Exception encountered. Retry %d out of %d", id = 4007)
    void exceptionAndNoRetriesLeft(int retry, int maxRetries, @Cause HotRodClientException te);
 
-//  id = 4008 is now logged to TRACE(ISPN-1794)
+   //  id = 4008 is now logged to TRACE(ISPN-1794)
 
    @LogMessage(level = WARN)
    @Message(value = "Issues closing socket for %s: %s", id = 4009)
@@ -112,7 +90,7 @@ public interface Log extends BasicLogger {
    @LogMessage(level = ERROR)
    @Message(value = "Could not fetch transport", id = 4017)
    void couldNotFetchTransport(@Cause Exception e);
-   
+
    @LogMessage(level = WARN)
    @Message(value = "Unable to convert string property [%s] to an int! Using default value of %d", id = 4018)
    void unableToConvertStringPropertyToInt(String value, int defaultValue);
@@ -125,4 +103,29 @@ public interface Log extends BasicLogger {
    @Message(value = "Unable to convert string property [%s] to a boolean! Using default value of %b", id = 4020)
    void unableToConvertStringPropertyToBoolean(String value, boolean defaultValue);
 
+   @LogMessage(level = INFO)
+   @Message(value = "Infinispan version: %s", id = 4021)
+   void version(String version);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Unable to invalidate transport for server: %s", id = 4022)
+   void unableToInvalidateTransport(SocketAddress serverAddress);
+
+   @Message(value = "SSL Enabled but no KeyStore specified", id = 4023)
+   CacheConfigurationException noSSLKeyManagerConfiguration();
+
+   @Message(value = "SSL Enabled but no TrustStore specified", id = 4024)
+   CacheConfigurationException noSSLTrustManagerConfiguration();
+
+   @Message(value = "A password is required to open the KeyStore '%s'", id = 4025)
+   CacheConfigurationException missingKeyStorePassword(String keyStore);
+
+   @Message(value = "A password is required to open the TrustStore '%s'", id = 4026)
+   CacheConfigurationException missingTrustStorePassword(String trustStore);
+
+   @Message(value = "Cannot configure custom KeyStore and/or TrustStore when specifying a SSLContext", id = 4027)
+   CacheConfigurationException xorSSLContext();
+
+   @Message(value = "Unable to parse server IP address %s", id = 4028)
+   CacheConfigurationException parseErrorServerAddress(String server);
 }

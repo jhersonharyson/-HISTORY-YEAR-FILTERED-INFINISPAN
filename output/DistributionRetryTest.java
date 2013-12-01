@@ -1,25 +1,3 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod.retry;
 
 import org.infinispan.Cache;
@@ -31,8 +9,8 @@ import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.marshall.Marshaller;
-import org.infinispan.marshall.jboss.JBossMarshaller;
+import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.marshall.core.JBossMarshaller;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.test.TestingUtil;
 import org.testng.annotations.Test;
@@ -43,18 +21,20 @@ import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.Assert.assertEquals;
 
 /**
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-@Test(testName = "hotrod.retry.DistributionRetryTest", groups = "functional")
+@Test(testName = "client.hotrod.retry.DistributionRetryTest", groups = "functional")
 public class DistributionRetryTest extends AbstractRetryTest {
 
    @Override
    protected ConfigurationBuilder getCacheConfig() {
-      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
+      ConfigurationBuilder builder = hotRodCacheConfiguration(
+            getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
       builder.clustering().hash().numOwners(1);
       return builder;
    }
@@ -142,7 +122,7 @@ public class DistributionRetryTest extends AbstractRetryTest {
       } finally {
          tcpTp.releaseTransport(transport);
       }
-      
+
 
       log.info("About to stop Hot Rod server 2");
       hotRodServer2.stop();

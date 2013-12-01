@@ -1,25 +1,3 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod;
 
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
@@ -34,10 +12,14 @@ import org.testng.annotations.Test;
 import java.util.Properties;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withRemoteCacheManager;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 
 /**
+ * Tests ping-on-startup logic whose objective is to retrieve the Hot Rod
+ * server topology before a client executes an operation against the server.
+ *
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
@@ -46,8 +28,9 @@ public class PingOnStartupTest extends MultiHotRodServersTest {
 
    @Override
    protected void createCacheManagers() throws Throwable {
-      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
-      createHotRodServers(2, builder.build());
+      ConfigurationBuilder builder = hotRodCacheConfiguration(
+            getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
+      createHotRodServers(2, builder);
    }
 
    public void testTopologyFetched() {
@@ -56,7 +39,6 @@ public class PingOnStartupTest extends MultiHotRodServersTest {
       props.put("infinispan.client.hotrod.server_list",
             "localhost:" + hotRodServer2.getPort() + ";localhost:" + hotRodServer2.getPort());
       props.put("infinispan.client.hotrod.ping_on_startup", "true");
-      props.put("timeBetweenEvictionRunsMillis", "500");
 
       withRemoteCacheManager(new RemoteCacheManagerCallable(
             new RemoteCacheManager(props)) {
@@ -131,7 +113,6 @@ public class PingOnStartupTest extends MultiHotRodServersTest {
       props.put("infinispan.client.hotrod.server_list",
             "boomoo:12345;localhost:" + hotRodServer2.getPort());
       props.put("infinispan.client.hotrod.ping_on_startup", "true");
-      props.put("timeBetweenEvictionRunsMillis", "500");
 
       withRemoteCacheManager(new RemoteCacheManagerCallable(
             new RemoteCacheManager(props)) {
@@ -148,7 +129,6 @@ public class PingOnStartupTest extends MultiHotRodServersTest {
       props.put("infinispan.client.hotrod.server_list",
             "localhost:" + hotRodServer2.getPort());
       props.put("infinispan.client.hotrod.ping_on_startup", "true");
-      props.put("timeBetweenEvictionRunsMillis", "500");
       withRemoteCacheManager(new RemoteCacheManagerCallable(
             new RemoteCacheManager(props)) {
          @Override

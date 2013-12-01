@@ -1,25 +1,3 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod.impl;
 
 import java.net.InetSocketAddress;
@@ -32,7 +10,7 @@ import java.util.Set;
 import org.infinispan.client.hotrod.impl.async.DefaultAsyncExecutorFactory;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
-import org.infinispan.marshall.jboss.GenericJBossMarshaller;
+import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
 
 /**
  * Encapsulate all config properties here
@@ -57,6 +35,11 @@ public class ConfigurationProperties {
    public static final String SO_TIMEOUT = "infinispan.client.hotrod.socket_timeout";
    public static final String CONNECT_TIMEOUT = "infinispan.client.hotrod.connect_timeout";
    public static final String PROTOCOL_VERSION = "infinispan.client.hotrod.protocol_version";
+   public static final String USE_SSL = "infinispan.client.hotrod.use_ssl";
+   public static final String KEY_STORE_FILE_NAME = "infinispan.client.hotrod.key_store_file_name";
+   public static final String KEY_STORE_PASSWORD = "infinispan.client.hotrod.key_store_password";
+   public static final String TRUST_STORE_FILE_NAME = "infinispan.client.hotrod.trust_store_file_name";
+   public static final String TRUST_STORE_PASSWORD = "infinispan.client.hotrod.trust_store_password";
 
    // defaults
 
@@ -65,10 +48,11 @@ public class ConfigurationProperties {
    public static final int DEFAULT_HOTROD_PORT = 11222;
    public static final int DEFAULT_SO_TIMEOUT = 60000;
    public static final int DEFAULT_CONNECT_TIMEOUT = 60000;
+   public static final String PROTOCOL_VERSION_13 = "1.3";
    public static final String PROTOCOL_VERSION_12 = "1.2";
    public static final String PROTOCOL_VERSION_11 = "1.1";
    public static final String PROTOCOL_VERSION_10 = "1.0";
-   public static final String DEFAULT_PROTOCOL_VERSION = PROTOCOL_VERSION_12;
+   public static final String DEFAULT_PROTOCOL_VERSION = PROTOCOL_VERSION_13;
 
    private final TypedProperties props;
 
@@ -160,6 +144,26 @@ public class ConfigurationProperties {
 
    public int getConnectTimeout() {
       return props.getIntProperty(CONNECT_TIMEOUT, DEFAULT_CONNECT_TIMEOUT);
+   }
+
+   public boolean getUseSSL() {
+      return props.getBooleanProperty(USE_SSL, false);
+   }
+
+   public String getKeyStoreFileName() {
+      return props.getProperty(KEY_STORE_FILE_NAME, null);
+   }
+
+   public String getKeyStorePassword() {
+      return props.getProperty(KEY_STORE_PASSWORD, null);
+   }
+
+   public String getTrustStoreFileName() {
+      return props.getProperty(TRUST_STORE_FILE_NAME, null);
+   }
+
+   public String getTrustStorePassword() {
+      return props.getProperty(TRUST_STORE_PASSWORD, null);
    }
 
 }

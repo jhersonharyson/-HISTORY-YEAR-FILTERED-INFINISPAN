@@ -1,34 +1,13 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
-import org.infinispan.api.BasicCache;
-import org.infinispan.util.concurrent.NotifyingFuture;
+import org.infinispan.commons.api.BasicCache;
+import org.infinispan.commons.util.concurrent.NotifyingFuture;
 
 /**
  * Provides remote reference to a Hot Rod server/cluster. It implements {@link org.infinispan.Cache}, but given its
@@ -83,7 +62,6 @@ import org.infinispan.util.concurrent.NotifyingFuture;
  * @since 4.1
  */
 public interface RemoteCache<K, V> extends BasicCache<K, V> {
-
    /**
     * Removes the given entry only if its version matches the supplied version. A typical use case looks like this:
     * <pre>
@@ -191,7 +169,9 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
    boolean containsValue(Object value);
 
    /**
-    * @throws UnsupportedOperationException
+    * Returns all keys in the remote server.  It'll invoke a command over the network each time this method is called.
+    * If the remote cache is a distributed cache, it will retrieve all of the keys from all nodes in the cluster.
+    * Please use with care for cache with large data set.
     */
    @Override
    Set<K> keySet();
@@ -207,70 +187,6 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     */
    @Override
    Set<Entry<K, V>> entrySet();
-
-   /**
-    * This operation is not supported. Consider using {@link #removeWithVersion(Object, long)} instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   boolean remove(Object key, Object value);
-
-   /**
-    * This operation is not supported. Consider using {@link #removeWithVersionAsync(Object, long)} instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   NotifyingFuture<Boolean> removeAsync(Object key, Object value);
-
-   /**
-    * This operation is not supported. Consider using {@link #replaceWithVersion(Object, Object, long)} instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   boolean replace(K key, V oldValue, V newValue);
-
-   /**
-    * This operation is not supported. Consider using {@link #replaceWithVersion(Object, Object, long, int)} instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   boolean replace(K key, V oldValue, V value, long lifespan, TimeUnit unit);
-
-   /**
-    * This operation is not supported. Consider using {@link #replaceWithVersion(Object, Object, long, int, int)}  instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   boolean replace(K key, V oldValue, V value, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit);
-
-   /**
-    * This operation is not supported. Consider using {@link #replaceWithVersionAsync(Object, Object, long)} instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   NotifyingFuture<Boolean> replaceAsync(K key, V oldValue, V newValue);
-
-   /**
-    * This operation is not supported. Consider using {@link #replaceWithVersion(Object, Object, long, int)} instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   NotifyingFuture<Boolean> replaceAsync(K key, V oldValue, V newValue, long lifespan, TimeUnit unit);
-
-   /**
-    * This operation is not supported. Consider using {@link #replaceWithVersion(Object, Object, long, int, int)}  instead.
-    *
-    * @throws UnsupportedOperationException
-    */
-   @Override
-   NotifyingFuture<Boolean> replaceAsync(K key, V oldValue, V newValue, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit);
 
    /**
     * Synthetic operation. The client iterates over the set of keys and calls put for each one of them. This results in
@@ -354,4 +270,10 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     * guarantee that "size" elements are returned( e.g. if the number of elements in the back-end server is smaller that "size")
     */
    Map<K, V> getBulk(int size);
+
+
+   /**
+    * Returns the HotRod protocol version supported by this RemoteCache implementation
+    */
+   String getProtocolVersion();
 }

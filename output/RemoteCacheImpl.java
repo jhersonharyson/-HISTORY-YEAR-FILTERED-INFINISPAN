@@ -1,25 +1,3 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod.impl;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -27,22 +5,25 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.ServerStatistics;
-import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.Version;
 import org.infinispan.client.hotrod.VersionedValue;
+import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
-import org.infinispan.client.hotrod.exceptions.TransportException;
 import org.infinispan.client.hotrod.impl.async.NotifyingFutureImpl;
+import org.infinispan.client.hotrod.impl.operations.BulkGetKeysOperation;
 import org.infinispan.client.hotrod.impl.operations.BulkGetOperation;
 import org.infinispan.client.hotrod.impl.operations.ClearOperation;
 import org.infinispan.client.hotrod.impl.operations.ContainsKeyOperation;
@@ -60,8 +41,8 @@ import org.infinispan.client.hotrod.impl.operations.ReplaceOperation;
 import org.infinispan.client.hotrod.impl.operations.StatsOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
-import org.infinispan.marshall.Marshaller;
-import org.infinispan.util.concurrent.NotifyingFuture;
+import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.util.concurrent.NotifyingFuture;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -94,6 +75,10 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       this.operationsFactory = operationsFactory;
       this.estimateKeySize = estimateKeySize;
       this.estimateValueSize = estimateValueSize;
+   }
+
+   public OperationsFactory getOperationsFactory() {
+      return operationsFactory;
    }
 
    @Override
@@ -414,6 +399,11 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
 
    @Override
    public String getVersion() {
+      return RemoteCacheImpl.class.getPackage().getImplementationVersion();
+   }
+
+   @Override
+   public String getProtocolVersion() {
       return Version.getProtocolVersion();
    }
 
@@ -447,7 +437,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       try {
          return marshaller.objectToByteBuffer(o, isKey ? estimateKeySize : estimateValueSize);
       } catch (IOException ioe) {
-         throw new TransportException("Unable to marshall object of type [" + o.getClass().getName() + "]", ioe);
+         throw new HotRodClientException(
+               "Unable to marshall object of type [" + o.getClass().getName() + "]", ioe);
       } catch (InterruptedException ie) {
          Thread.currentThread().interrupt();
          return null;
@@ -459,7 +450,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       try {
          return marshaller.objectFromByteBuffer(bytes);
       } catch (Exception e) {
-         throw new TransportException("Unable to unmarshall byte stream", e);
+         throw new HotRodClientException(
+               "Unable to unmarshall byte stream", e);
       }
    }
 
@@ -508,5 +500,19 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> {
       if (maxIdle == 0) {
          operationsFactory.addFlags(Flag.DEFAULT_MAXIDLE);
       }
+   }
+
+   @Override
+   public Set<K> keySet() {
+	   assertRemoteCacheManagerIsStarted();
+	   // Use default scope
+	   BulkGetKeysOperation op = operationsFactory.newBulkGetKeysOperation(0);
+	   Set<byte[]> result = op.execute();
+       Set<K> toReturn = new HashSet<K>();
+       for (byte[] keyBytes : result) {
+          K key = (K) bytes2obj(keyBytes);
+          toReturn.add(key);
+       }
+       return Collections.unmodifiableSet(toReturn);
    }
 }

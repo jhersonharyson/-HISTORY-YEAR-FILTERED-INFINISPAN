@@ -1,25 +1,3 @@
-/*
- * JBoss, Home of Professional Open Source
- * Copyright 2010 Red Hat Inc. and/or its affiliates and other
- * contributors as indicated by the @author tags. All rights reserved.
- * See the copyright.txt in the distribution for a full listing of
- * individual contributors.
- *
- * This is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This software is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this software; if not, write to the Free
- * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
- */
 package org.infinispan.client.hotrod.impl.protocol;
 
 import java.nio.charset.Charset;
@@ -38,6 +16,7 @@ public interface HotRodConstants {
    static final byte VERSION_10 = 10;
    static final byte VERSION_11 = 11;
    static final byte VERSION_12 = 12;
+   static final byte VERSION_13 = 13;
 
    //requests
    static final byte PUT_REQUEST = 0x01;
@@ -54,6 +33,8 @@ public interface HotRodConstants {
    static final byte PING_REQUEST = 0x17;
    static final byte BULK_GET_REQUEST = 0x19;
    static final byte GET_WITH_METADATA = 0x1B;
+   static final byte BULK_GET_KEYS_REQUEST = 0x1D;
+   static final byte QUERY_REQUEST = 0x1F;
 
 
    //responses
@@ -71,6 +52,8 @@ public interface HotRodConstants {
    static final byte PING_RESPONSE = 0x18;
    static final byte BULK_GET_RESPONSE = 0x1A;
    static final byte GET_WITH_METADATA_RESPONSE = 0x1C;
+   static final byte BULK_GET_KEYS_RESPONSE = 0x1E;
+   static final byte QUERY_RESPONSE = 0x20;
    static final byte ERROR_RESPONSE = 0x50;
 
    //response status
