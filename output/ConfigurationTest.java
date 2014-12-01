@@ -4,11 +4,20 @@ import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertTrue;
 
+import java.io.IOException;
+
+import javax.security.auth.Subject;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.CallbackHandler;
+import javax.security.auth.callback.UnsupportedCallbackException;
+
 import org.infinispan.client.hotrod.SomeAsyncExecutorFactory;
 import org.infinispan.client.hotrod.SomeCustomConsistentHashV1;
 import org.infinispan.client.hotrod.SomeRequestBalancingStrategy;
 import org.infinispan.client.hotrod.SomeTransportfactory;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.impl.transport.tcp.SaslTransportObjectFactory;
+import org.infinispan.commons.CacheConfigurationException;
 import org.testng.annotations.Test;
 
 @Test(testName = "client.hotrod.configuration.ConfigurationTest", groups = "functional" )
@@ -46,6 +55,8 @@ public class ConfigurationTest {
          .pingOnStartup(false)
          .keySizeEstimate(128)
          .valueSizeEstimate(1024)
+         .maxRetries(0)
+         .tcpKeepAlive(true)
          .transportFactory(SomeTransportfactory.class);
 
       Configuration configuration = builder.build();
@@ -74,6 +85,34 @@ public class ConfigurationTest {
       assertServer("localhost", 8382, cfg.servers().get(5));
    }
 
+   @Test(expectedExceptions = CacheConfigurationException.class,
+         expectedExceptionsMessageRegExp = "ISPN(\\d)*: Invalid max_retries \\(value=-1\\). " +
+               "Value should be greater or equal than zero.")
+   public void testNegativeRetriesPerServer() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.maxRetries(-1);
+      builder.build();
+   }
+
+   @Test(expectedExceptions = CacheConfigurationException.class)
+   public void testInvalidAuthenticationConfig() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.security().authentication().enable().saslMechanism("PLAIN");
+      builder.build();
+   }
+
+   public void testValidAuthenticationSubjectNoCBH() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.security().authentication().enable().saslMechanism("PLAIN").clientSubject(new Subject());
+      builder.build();
+   }
+
+   public void testValidAuthenticationCBHNoSubject() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.security().authentication().enable().saslMechanism("PLAIN").callbackHandler(SaslTransportObjectFactory.NoOpCallbackHandler.INSTANCE);
+      builder.build();
+   }
+
    private void assertServer(String host, int port, ServerConfiguration serverCfg) {
       assertEquals(host, serverCfg.host());
       assertEquals(port, serverCfg.port());
@@ -100,8 +139,11 @@ public class ConfigurationTest {
       assertEquals(100, configuration.connectionTimeout());
       assertEquals(100, configuration.socketTimeout());
       assertFalse(configuration.tcpNoDelay());
+      assertTrue(configuration.tcpKeepAlive());
       assertFalse(configuration.pingOnStartup());
       assertEquals(128, configuration.keySizeEstimate());
       assertEquals(1024, configuration.valueSizeEstimate());
+      assertEquals(0, configuration.maxRetries());
    }
+
 }

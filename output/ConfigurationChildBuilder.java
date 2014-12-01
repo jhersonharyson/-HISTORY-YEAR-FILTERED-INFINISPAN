@@ -120,14 +120,19 @@ public interface ConfigurationChildBuilder {
    ConfigurationBuilder socketTimeout(int socketTimeout);
 
    /**
-    * SSL Configuration
+    * Security Configuration
     */
-   SslConfigurationBuilder ssl();
+   SecurityConfigurationBuilder security();
 
    /**
     * Affects TCP NODELAY on the TCP stack. Defaults to enabled
     */
    ConfigurationBuilder tcpNoDelay(boolean tcpNoDelay);
+
+   /**
+    * Affects TCP KEEPALIVE on the TCP stack. Defaults to disable
+    */
+   ConfigurationBuilder tcpKeepAlive(boolean keepAlive);
 
    /**
     * Controls which transport to use. Currently only the TcpTransport is supported.
@@ -144,6 +149,12 @@ public interface ConfigurationChildBuilder {
     * array resizing. It defaults to 512
     */
    ConfigurationBuilder valueSizeEstimate(int valueSizeEstimate);
+
+   /**
+    * It sets the maximum number of retries for each request. A valid value should be greater or equals than 0 (zero).
+    * Zero means no retry will made in case of a network failure. It defaults to 10.
+    */
+   ConfigurationBuilder maxRetries(int maxRetries);
 
    /**
     * Configures this builder using the specified properties

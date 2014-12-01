@@ -1,58 +1,59 @@
 package org.infinispan.client.hotrod.query;
 
-import org.hibernate.search.infinispan.InfinispanIntegration;
+import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
+import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.MarshallerRegistration;
+import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.manager.EmbeddedCacheManager;
-import org.infinispan.protostream.sampledomain.marshallers.MarshallerRegistration;
-import org.infinispan.query.remote.ProtobufMetadataManager;
-import org.infinispan.test.fwk.CleanupAfterMethod;
-import org.infinispan.test.fwk.TestCacheManagerFactory;
+import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
 import org.testng.annotations.Test;
+
+import static org.junit.Assert.assertFalse;
 
 /**
  * Verifying the functionality of remote queries for infinispan directory_provider.
  *
  * @author Anna Manukyan
+ * @author anistor@redhat.com
+ * @since 6.0
  */
 @Test(testName = "client.hotrod.query.RemoteQueryDslConditionsIspnDirTest", groups = "functional")
-@CleanupAfterMethod
 public class RemoteQueryDslConditionsIspnDirTest extends RemoteQueryDslConditionsTest {
 
+   protected static final String TEST_CACHE_NAME = "testCache";
+
    @Override
-   protected EmbeddedCacheManager createCacheManager() throws Exception {
-      ConfigurationBuilder builder = getConfigurationBuilder();
-
-      cacheManager = TestCacheManagerFactory.createCacheManager(builder);
-
+   protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder defaultCacheConfiguration = new ConfigurationBuilder();
-      cacheManager.defineConfiguration(InfinispanIntegration.DEFAULT_INDEXESDATA_CACHENAME, defaultCacheConfiguration.build());
-      cacheManager.defineConfiguration(InfinispanIntegration.DEFAULT_LOCKING_CACHENAME, defaultCacheConfiguration.build());
-      cacheManager.defineConfiguration(InfinispanIntegration.DEFAULT_INDEXESMETADATA_CACHENAME, defaultCacheConfiguration.build());
+      createClusteredCaches(1, defaultCacheConfiguration);
 
-      cache = cacheManager.getCache();
+      ConfigurationBuilder cfg = getConfigurationBuilder();
+      manager(0).defineConfiguration(TEST_CACHE_NAME, cfg.build());
+      cache = manager(0).getCache(TEST_CACHE_NAME);
 
-      hotRodServer = TestHelper.startHotRodServer(cacheManager);
+      hotRodServer = TestHelper.startHotRodServer(manager(0));
 
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort());
       clientBuilder.marshaller(new ProtoStreamMarshaller());
       remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
-      remoteCache = remoteCacheManager.getCache();
+      remoteCache = remoteCacheManager.getCache(TEST_CACHE_NAME);
 
       //initialize server-side serialization context
-      cacheManager.getGlobalComponentRegistry().getComponent(ProtobufMetadataManager.class).registerProtofile("/bank.protobin");
+      RemoteCache<String, String> metadataCache = remoteCacheManager.getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
+      metadataCache.put("sample_bank_account/bank.proto", Util.read(Util.getResourceAsStream("/sample_bank_account/bank.proto", getClass().getClassLoader())));
+      assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
 
       //initialize client-side serialization context
       MarshallerRegistration.registerMarshallers(ProtoStreamMarshaller.getSerializationContext(remoteCacheManager));
-
-      return cacheManager;
    }
 
    @Override
-   public String getLuceneDirectoryProvider() {
-      return "infinispan";
+   protected ConfigurationBuilder getConfigurationBuilder() {
+      ConfigurationBuilder builder = super.getConfigurationBuilder();
+      builder.indexing().addProperty("default.directory_provider", "infinispan");
+      return builder;
    }
 }

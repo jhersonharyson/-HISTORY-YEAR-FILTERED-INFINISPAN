@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  * @author Mircea Markus <mircea.markus@jboss.com> (C) 2011 Red Hat Inc.
  * @since 5.1
  */
-@Test (groups = "performance", testName = "client.hotrod.ConsistentHashPerformanceTest", enabled = false)
+@Test (groups = "performance", testName = "client.hotrod.ConsistentHashPerformanceTest")
 public class ConsistentHashPerformanceTest {
 
 
@@ -71,6 +71,6 @@ public class ConsistentHashPerformanceTest {
 
 
       dch.init(map, 2, 10024);
-      dch.setHash(new MurmurHash3());
+      dch.setHash(MurmurHash3.getInstance());
    }
 }

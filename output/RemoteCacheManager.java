@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.configuration.ServerConfiguration;
+import org.infinispan.client.hotrod.event.ClientListenerNotifier;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
@@ -20,6 +21,7 @@ import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingOperation.PingResult;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.CodecFactory;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
@@ -27,7 +29,6 @@ import org.infinispan.commons.api.BasicCacheContainer;
 import org.infinispan.commons.executors.ExecutorFactory;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.FileLookupFactory;
-import org.infinispan.commons.util.SysPropertyActions;
 import org.infinispan.commons.util.TypedProperties;
 import org.infinispan.commons.util.Util;
 
@@ -60,18 +61,20 @@ import org.infinispan.commons.util.Util;
  * At least one host:port must be specified.</li>
  * <li><tt>infinispan.client.hotrod.force_return_values</tt>, default = false.  Whether or not to implicitly {@link org.infinispan.client.hotrod.Flag#FORCE_RETURN_VALUE} for all calls.</li>
  * <li><tt>infinispan.client.hotrod.tcp_no_delay</tt>, default = true.  Affects TCP NODELAY on the TCP stack.</li>
+ * <li><tt>infinispan.client.hotrod.tcp_keep_alive</tt>, default = false.  Affects TCP KEEPALIVE on the TCP stack.</li>
  * <li><tt>infinispan.client.hotrod.ping_on_startup</tt>, default = true.  If true, a ping request is sent to a back end server in order to fetch cluster's topology.</li>
  * <li><tt>infinispan.client.hotrod.transport_factory</tt>, default = org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory - controls which transport to use.  Currently only the TcpTransport is supported.</li>
- * <li><tt>infinispan.client.hotrod.marshaller</tt>, default = org.infinispan.marshall.jboss.GenericJBossMarshaller.  Allows you to specify a custom {@link org.infinispan.marshall.Marshaller} implementation to serialize and deserialize user objects. For portable serialization payloads, you should configure the marshaller to be {@link org.infinispan.client.hotrod.marshall.ApacheAvroMarshaller}</li>
+ * <li><tt>infinispan.client.hotrod.marshaller</tt>, default = org.infinispan.marshall.jboss.GenericJBossMarshaller.  Allows you to specify a custom {@link org.infinispan.marshall.Marshaller} implementation to serialize and deserialize user objects. For portable serialization payloads, you should configure the marshaller to be {@link org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller}</li>
  * <li><tt>infinispan.client.hotrod.async_executor_factory</tt>, default = org.infinispan.client.hotrod.impl.async.DefaultAsyncExecutorFactory.  Allows you to specify a custom asynchroous executor for async calls.</li>
- * <li><tt>infinispan.client.hotrod.default_executor_factory.pool_size</tt>, default = 10.  If the default executor is used, this configures the number of threads to initialize the executor with.</li>
+ * <li><tt>infinispan.client.hotrod.default_executor_factory.pool_size</tt>, default = 99.  If the default executor is used, this configures the number of threads to initialize the executor with.</li>
  * <li><tt>infinispan.client.hotrod.default_executor_factory.queue_size</tt>, default = 100000.  If the default executor is used, this configures the queue size to initialize the executor with.</li>
  * <li><tt>infinispan.client.hotrod.hash_function_impl.1</tt>, default = It uses the hash function specified by the server in the responses as indicated in {@link org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashFactory}.  This specifies the version of the hash function and consistent hash algorithm in use, and is closely tied with the HotRod server version used.</li>
  * <li><tt>infinispan.client.hotrod.key_size_estimate</tt>, default = 64.  This hint allows sizing of byte buffers when serializing and deserializing keys, to minimize array resizing.</li>
  * <li><tt>infinispan.client.hotrod.value_size_estimate</tt>, default = 512.  This hint allows sizing of byte buffers when serializing and deserializing values, to minimize array resizing.</li>
  * <li><tt>infinispan.client.hotrod.socket_timeout</tt>, default = 60000 (60 seconds).  This property defines the maximum socket read timeout before giving up waiting for bytes from the server.</li>
- * <li><tt>infinispan.client.hotrod.protocol_version</tt>, default = 1.1 .This property defines the protocol version that this client should use. Other valid values include 1.0.</li>
+ * <li><tt>infinispan.client.hotrod.protocol_version</tt>, default = 2.0 .This property defines the protocol version that this client should use. Other valid values include 1.0.</li>
  * <li><tt>infinispan.client.hotrod.connect_timeout</tt>, default = 60000 (60 seconds).  This property defines the maximum socket connect timeout before giving up connecting to the server.</li>
+ * <li><tt>infinispan.client.hotrod.max_retries</tt>, default = 10.  This property defines the maximum number of retries in case of a recoverable error. A valid value should be greater or equals to 0 (zero). Zero mean no retry.</li>
  * </ul>
  * <br/>
  * <i>The following properties are related to connection pooling</i>:
@@ -138,14 +141,14 @@ public class RemoteCacheManager implements BasicCacheContainer {
 
    private volatile boolean started = false;
    private final Map<String, RemoteCacheHolder> cacheName2RemoteCache = new HashMap<String, RemoteCacheHolder>();
-   // Use an invalid topologyID (-1) so we always get a topology update on connection.
-   private AtomicInteger topologyId = new AtomicInteger(-1);
+   private final AtomicInteger defaultCacheTopologyId = new AtomicInteger(-1);
    private Configuration configuration;
    private Codec codec;
 
    private Marshaller marshaller;
    private TransportFactory transportFactory;
    private ExecutorService asyncExecutorService;
+   private ClientListenerNotifier listenerNotifier;
 
    /**
     *
@@ -260,13 +263,13 @@ public class RemoteCacheManager implements BasicCacheContainer {
     * Retrieves the configuration currently in use. The configuration object is immutable. If you wish to change configuration,
     * you should use the following pattern:
     *
-    * <code>
+    * <pre><code>
     * ConfigurationBuilder builder = new ConfigurationBuilder();
     * builder.read(remoteCacheManager.getConfiguration());
     * // modify builder
     * remoteCacheManager.stop();
     * remoteCacheManager = new RemoteCacheManager(builder.build());
-    * </code>
+    * </code></pre>
     *
     * @since 5.3
     * @return The configuration of this RemoteCacheManager
@@ -280,12 +283,13 @@ public class RemoteCacheManager implements BasicCacheContainer {
     * retrieved will not affect an already-running RemoteCacheManager.  If you wish to make changes to an already-running
     * RemoteCacheManager, you should use the following pattern:
     *
-    * <code>
+    * <pre><code>
     * Properties p = remoteCacheManager.getProperties();
     * // update properties
     * remoteCacheManager.stop();
     * remoteCacheManager = new RemoteCacheManager(p);
-    * </code>
+    * </code></pre>
+    *
     * @return a clone of the properties used to configure this RemoteCacheManager
     * @since 4.2
     */
@@ -313,8 +317,10 @@ public class RemoteCacheManager implements BasicCacheContainer {
       properties.setProperty(ConfigurationProperties.PROTOCOL_VERSION, configuration.protocolVersion());
       properties.setProperty(ConfigurationProperties.SO_TIMEOUT, Integer.toString(configuration.socketTimeout()));
       properties.setProperty(ConfigurationProperties.TCP_NO_DELAY, Boolean.toString(configuration.tcpNoDelay()));
+      properties.setProperty(ConfigurationProperties.TCP_KEEP_ALIVE, Boolean.toString(configuration.tcpKeepAlive()));
       properties.setProperty(ConfigurationProperties.TRANSPORT_FACTORY, configuration.transportFactory().getName());
       properties.setProperty(ConfigurationProperties.VALUE_SIZE_ESTIMATE, Integer.toString(configuration.valueSizeEstimate()));
+      properties.setProperty(ConfigurationProperties.MAX_RETRIES, Integer.toString(configuration.maxRetries()));
 
       properties.setProperty("exhaustedAction", Integer.toString(configuration.connectionPool().exhaustedAction().ordinal()));
       properties.setProperty("maxActive", Integer.toString(configuration.connectionPool().maxActive()));
@@ -543,13 +549,12 @@ public class RemoteCacheManager implements BasicCacheContainer {
    @Override
    public void start() {
       // Workaround for JDK6 NPE: http://bugs.sun.com/view_bug.do?bug_id=6427854
-      SysPropertyActions.setProperty("sun.nio.ch.bugLevel", "\"\"");
+      SecurityActions.setProperty("sun.nio.ch.bugLevel", "\"\"");
 
       codec = CodecFactory.getCodec(configuration.protocolVersion());
 
       transportFactory = Util.getInstance(configuration.transportFactory());
 
-      transportFactory.start(codec, configuration, topologyId);
       if (marshaller == null) {
          marshaller = configuration.marshaller();
          if (marshaller == null) {
@@ -565,9 +570,12 @@ public class RemoteCacheManager implements BasicCacheContainer {
          asyncExecutorService = executorFactory.getExecutor(configuration.asyncExecutorFactory().properties());
       }
 
+      listenerNotifier = new ClientListenerNotifier(asyncExecutorService, codec, marshaller);
+      transportFactory.start(codec, configuration, defaultCacheTopologyId, listenerNotifier);
+
       synchronized (cacheName2RemoteCache) {
          for (RemoteCacheHolder rcc : cacheName2RemoteCache.values()) {
-            startRemoteCache(rcc);
+            startRemoteCache(rcc, defaultCacheTopologyId);
          }
       }
 
@@ -577,9 +585,15 @@ public class RemoteCacheManager implements BasicCacheContainer {
       started = true;
    }
 
+   /**
+    * Stop the remote cache manager, disconnecting all existing connections.
+    * As part of the disconnection, all registered client cache listeners will
+    * be removed since client no longer can receive callbacks.
+    */
    @Override
    public void stop() {
       if (isStarted()) {
+         listenerNotifier.stop();
          transportFactory.destroy();
          asyncExecutorService.shutdownNow();
       }
@@ -606,7 +620,8 @@ public class RemoteCacheManager implements BasicCacheContainer {
          if (!cacheName2RemoteCache.containsKey(cacheName)) {
             RemoteCacheImpl<K, V> result = new RemoteCacheImpl<K, V>(this, cacheName);
             RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride == null ? configuration.forceReturnValues() : forceReturnValueOverride);
-            startRemoteCache(rcc);
+            AtomicInteger topologyId = cacheName.isEmpty() ? defaultCacheTopologyId : new AtomicInteger(-1);
+            startRemoteCache(rcc, topologyId);
             if (configuration.pingOnStartup()) {
                // If ping not successful assume that the cache does not exist
                // Default cache is always started, so don't do for it
@@ -632,16 +647,28 @@ public class RemoteCacheManager implements BasicCacheContainer {
       return cache.ping();
    }
 
-   private void startRemoteCache(RemoteCacheHolder remoteCacheHolder) {
+   private void startRemoteCache(RemoteCacheHolder remoteCacheHolder, AtomicInteger topologyId) {
       RemoteCacheImpl<?, ?> remoteCache = remoteCacheHolder.remoteCache;
       OperationsFactory operationsFactory = new OperationsFactory(
-            transportFactory, remoteCache.getName(), topologyId, remoteCacheHolder.forceReturnValue, codec);
+            transportFactory, remoteCache.getName(), topologyId, remoteCacheHolder.forceReturnValue,
+            codec, listenerNotifier);
       remoteCache.init(marshaller, asyncExecutorService, operationsFactory, configuration.keySizeEstimate(), configuration.valueSizeEstimate());
    }
 
    public Marshaller getMarshaller() {
       return marshaller;
    }
+
+   public static byte[] cacheNameBytes(String cacheName) {
+      return cacheName.equals(DEFAULT_CACHE_NAME)
+            ? HotRodConstants.DEFAULT_CACHE_NAME_BYTES
+            : cacheName.getBytes(HotRodConstants.HOTROD_STRING_CHARSET);
+   }
+
+   public static byte[] cacheNameBytes() {
+      return HotRodConstants.DEFAULT_CACHE_NAME_BYTES;
+   }
+
 }
 
 class RemoteCacheHolder {

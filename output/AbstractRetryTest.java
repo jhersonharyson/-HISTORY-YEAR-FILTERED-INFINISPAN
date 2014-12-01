@@ -1,11 +1,13 @@
 package org.infinispan.client.hotrod.retry;
 
+import org.infinispan.AdvancedCache;
 import org.infinispan.client.hotrod.HitsAwareCacheManagersTest;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
@@ -13,6 +15,7 @@ import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterMethod;
 
+import java.net.SocketAddress;
 import java.util.Properties;
 
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
@@ -27,7 +30,7 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
    protected HotRodServer hotRodServer2;
    protected HotRodServer hotRodServer3;
 
-   RemoteCacheImpl remoteCache;
+   RemoteCacheImpl<Object, Object> remoteCache;
    protected RemoteCacheManager remoteCacheManager;
    protected TcpTransportFactory tcpConnectionFactory;
    protected ConfigurationBuilder config;
@@ -39,12 +42,11 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
 
    @Override
    protected void assertSupportedConfig() {
+      // no-op
    }
 
    @Override
    protected void createCacheManagers() throws Throwable {
-      assert cleanupAfterMethod();
-
       config = hotRodCacheConfiguration(getCacheConfig());
       EmbeddedCacheManager cm1 = TestCacheManagerFactory.createClusteredCacheManager(config);
       EmbeddedCacheManager cm2 = TestCacheManagerFactory.createClusteredCacheManager(config);
@@ -70,8 +72,8 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
 
       remoteCacheManager = new RemoteCacheManager(clientConfig);
       remoteCache = (RemoteCacheImpl) remoteCacheManager.getCache();
-      tcpConnectionFactory = (TcpTransportFactory) TestingUtil.extractField(remoteCacheManager, "transportFactory");
-      strategy = (RoundRobinBalancingStrategy) tcpConnectionFactory.getBalancer();
+      tcpConnectionFactory = TestingUtil.extractField(remoteCacheManager, "transportFactory");
+      strategy = (RoundRobinBalancingStrategy) tcpConnectionFactory.getBalancer(RemoteCacheManager.cacheNameBytes());
       addInterceptors();
 
       assert super.cacheManagers.size() == 3;
@@ -80,30 +82,18 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
    @AfterMethod(alwaysRun = true)
    @Override
    protected void clearContent() throws Throwable {
-      // Since cleanup happens after method,
-      // make sure the rest of components are also cleaned up.
-      try {
-         if (remoteCache != null) remoteCache.stop();
-      } finally {
-         try {
-            if (remoteCacheManager != null) remoteCacheManager.stop();
-         } finally {
-            try {
-               if (hotRodServer1 != null) hotRodServer1.stop();
-            } finally {
-               try {
-                  if (hotRodServer2 != null) hotRodServer2.stop();
-               } finally {
-                  try {
-                     if (hotRodServer3 != null) hotRodServer3.stop();
-                  } finally {
-                     super.clearContent(); // Now stop the cache managers
-                  }
-               }
-            }
-         }
+      if (cleanupAfterMethod()) {
+         HotRodClientTestingUtil.killRemoteCacheManagers(remoteCacheManager);
+         HotRodClientTestingUtil.killServers(hotRodServer1, hotRodServer2, hotRodServer3);
       }
+      super.clearContent();
    }
 
    protected abstract ConfigurationBuilder getCacheConfig();
+
+   protected AdvancedCache<?, ?> nextCacheToHit() {
+      SocketAddress expectedServer = strategy.getServers()[strategy.getNextPosition()];
+      return hrServ2CacheManager.get(expectedServer).getCache().getAdvancedCache();
+   }
+
 }

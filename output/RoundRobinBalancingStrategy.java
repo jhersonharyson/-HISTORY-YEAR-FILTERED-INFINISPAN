@@ -1,14 +1,13 @@
 package org.infinispan.client.hotrod.impl.transport.tcp;
 
+import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.client.hotrod.logging.LogFactory;
+
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Arrays;
 import java.util.Collection;
-
-import net.jcip.annotations.ThreadSafe;
-
-import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.client.hotrod.logging.LogFactory;
+import java.util.Set;
 
 /**
  * Round-robin implementation for {@link org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy}.
@@ -16,8 +15,7 @@ import org.infinispan.client.hotrod.logging.LogFactory;
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-@ThreadSafe
-public class RoundRobinBalancingStrategy implements RequestBalancingStrategy {
+public class RoundRobinBalancingStrategy implements FailoverRequestBalancingStrategy {
 
    private static final Log log = LogFactory.getLog(RoundRobinBalancingStrategy.class);
 
@@ -38,19 +36,29 @@ public class RoundRobinBalancingStrategy implements RequestBalancingStrategy {
    }
 
    /**
-    * Multiple threads might call this method at the same time.
+    * @param failedServers Servers that should not be returned (if any other are available)
     */
    @Override
+   public SocketAddress nextServer(Set<SocketAddress> failedServers) {
+      for (int i = 0;; ++i) {
+         SocketAddress server = getServerByIndex(index++);
+         // don't allow index to overflow and have a negative value
+         if (index >= servers.length)
+            index = 0;
+
+         if (failedServers == null || !failedServers.contains(server) || i >= failedServers.size()) {
+            return server;
+         }
+      }
+   }
+
+   @Override
    public SocketAddress nextServer() {
-      SocketAddress server = getServerByIndex(index++);
-      // don't allow index to overflow and have a negative value
-      if (index >= servers.length)
-         index = 0;
-      return server;
+      return nextServer(null);
    }
 
    /**
-    * Returns same value as {@link #nextServer()} without modifying indexes/state.
+    * Returns same value as {@link FailoverRequestBalancingStrategy#nextServer(java.util.Set)} without modifying indexes/state.
     */
    public SocketAddress dryRunNextServer() {
       return getServerByIndex(index);
@@ -69,6 +77,6 @@ public class RoundRobinBalancingStrategy implements RequestBalancingStrategy {
    }
 
    public int getNextPosition() {
-      return  index;
+      return index;
    }
 }

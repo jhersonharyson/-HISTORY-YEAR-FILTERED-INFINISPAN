@@ -1,60 +1,40 @@
 package org.infinispan.client.hotrod.query;
 
-import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
-import org.infinispan.protostream.sampledomain.marshallers.MarshallerRegistration;
-import org.infinispan.query.remote.ProtobufMetadataManager;
 import org.testng.annotations.Test;
 
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 /**
- * Verifying the functionality of Queries using ISPN directory_provider on clustered hotrod server configuration.
+ * Verifying the functionality of queries using a local infinispan directory provider.
  *
  * @author Anna Manukyan
  */
-@Test(testName = "client.hotrod.query.MultiHotRodServerIspnDirQueryTest", groups = "functional", enabled = false, description = "Enable tests when ISPN-3672 is fixed.")
+@Test(testName = "client.hotrod.query.MultiHotRodServerIspnDirQueryTest", groups = "functional")
 public class MultiHotRodServerIspnDirQueryTest extends MultiHotRodServerQueryTest {
+
+   protected static final String TEST_CACHE = "queryableCache";
 
    @Override
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder defaultConfiguration = new ConfigurationBuilder();
+      createHotRodServers(2, defaultConfiguration);
+
       ConfigurationBuilder builder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.REPL_SYNC, false));
-      builder.indexing().enable().indexLocalOnly(false)
+      builder.indexing().index(Index.ALL)
             .addProperty("default.directory_provider", "infinispan")
             .addProperty("lucene_version", "LUCENE_CURRENT");
 
-      createHotRodServers(2, defaultConfiguration);
-
-      //initialize server-side serialization context
       for (EmbeddedCacheManager cm : cacheManagers) {
-         cm.defineConfiguration("queryableCache", builder.build());
-
-         cm.getGlobalComponentRegistry().getComponent(ProtobufMetadataManager.class).registerProtofile("/bank.protobin");
+         cm.defineConfiguration(TEST_CACHE, builder.build());
       }
 
-      //initialize client-side serialization context
-      for (RemoteCacheManager rcm : clients) {
-         MarshallerRegistration.registerMarshallers(ProtoStreamMarshaller.getSerializationContext(rcm));
-      }
+      waitForClusterToForm();
 
-      remoteCache0 = client(0).getCache("queryableCache");
-      remoteCache1 = client(1).getCache("queryableCache");
-   }
-
-   @Test(enabled = false)
-   public void testAttributeQuery() throws Exception {
-
-   }
-
-   @Test(enabled = false)
-   public void testEmbeddedAttributeQuery() throws Exception {
-   }
-
-   @Test(enabled = false)
-   public void testProjections() throws Exception {
+      remoteCache0 = client(0).getCache(TEST_CACHE);
+      remoteCache1 = client(1).getCache(TEST_CACHE);
    }
 }

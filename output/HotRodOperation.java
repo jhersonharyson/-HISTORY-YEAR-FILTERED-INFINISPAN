@@ -23,10 +23,10 @@ public abstract class HotRodOperation implements HotRodConstants {
 
    protected final Flag[] flags;
 
-   protected final byte[] cacheName;
+   public final byte[] cacheName;
 
    protected final AtomicInteger topologyId;
-   
+
    protected final Codec codec;
 
    private static final byte NO_TX = 0;

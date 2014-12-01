@@ -41,8 +41,12 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
       }
 
       for (int i = 0; i < num; i++) {
-         clients.add(new RemoteCacheManager(createHotRodClientConfigurationBuilder(server(i).getPort()).build()));
+         clients.add(createClient(i));
       }
+   }
+
+   protected RemoteCacheManager createClient(int i) {
+      return new RemoteCacheManager(createHotRodClientConfigurationBuilder(server(i).getPort()).build());
    }
 
    protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(int serverPort) {
@@ -73,7 +77,7 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
       }
    }
 
-   private HotRodServer addHotRodServer(ConfigurationBuilder builder) {
+   protected HotRodServer addHotRodServer(ConfigurationBuilder builder) {
       EmbeddedCacheManager cm = addClusterEnabledCacheManager(builder);
       HotRodServer server = TestHelper.startHotRodServer(cm);
       servers.add(server);
@@ -88,4 +92,8 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
       return clients.get(i);
    }
 
+   protected void defineInAll(String cacheName, ConfigurationBuilder builder) {
+      for (HotRodServer server : servers)
+         server.getCacheManager().defineConfiguration(cacheName, builder.build());
+   }
 }

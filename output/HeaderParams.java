@@ -91,11 +91,28 @@ public class HeaderParams {
             return HotRodConstants.BULK_GET_KEYS_RESPONSE;
          case HotRodConstants.QUERY_REQUEST:
             return HotRodConstants.QUERY_RESPONSE;
+         case HotRodConstants.AUTH_MECH_LIST_REQUEST:
+            return HotRodConstants.AUTH_MECH_LIST_RESPONSE;
+         case HotRodConstants.AUTH_REQUEST:
+            return HotRodConstants.AUTH_RESPONSE;
+         case HotRodConstants.ADD_CLIENT_LISTENER_REQUEST:
+            return HotRodConstants.ADD_CLIENT_LISTENER_RESPONSE;
+         case HotRodConstants.REMOVE_CLIENT_LISTENER_REQUEST:
+            return HotRodConstants.REMOVE_CLIENT_LISTENER_RESPONSE;
+         case HotRodConstants.SIZE_REQUEST:
+            return HotRodConstants.SIZE_RESPONSE;
          default:
             throw new IllegalStateException("Unknown operation code: " + opCode);
       }
    }
 
-
+   static int joinFlags(Flag[] flags) {
+      int flagInt = 0;
+      if (flags != null) {
+         for (Flag flag : flags)
+            flagInt = flag.getFlagInt() | flagInt;
+      }
+      return flagInt;
+   }
 
 }

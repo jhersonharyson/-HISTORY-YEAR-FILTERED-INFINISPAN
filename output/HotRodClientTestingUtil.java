@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.test;
 
+import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.server.hotrod.HotRodServer;
@@ -78,6 +79,27 @@ public class HotRodClientTestingUtil {
          c.call();
       } finally {
          killRemoteCacheManager(c.rcm);
+      }
+   }
+
+   public static <K, V> void withClientListener(Object listener, RemoteCacheManagerCallable c) {
+      RemoteCache<K, V> cache = c.rcm.getCache();
+      cache.addClientListener(listener);
+      try {
+         c.call();
+      } finally {
+         cache.removeClientListener(listener);
+      }
+   }
+
+   public static <K, V> void withClientListener(Object listener,
+         Object[] filterFactoryParams, Object[] converterFactoryParams, RemoteCacheManagerCallable c) {
+      RemoteCache<K, V> cache = c.rcm.getCache();
+      cache.addClientListener(listener, filterFactoryParams, converterFactoryParams);
+      try {
+         c.call();
+      } finally {
+         cache.removeClientListener(listener);
       }
    }
 

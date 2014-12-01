@@ -1,16 +1,22 @@
 package org.infinispan.client.hotrod.logging;
 
+import org.infinispan.client.hotrod.event.ClientEvent;
+import org.infinispan.client.hotrod.event.IncorrectClientListenerException;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.commons.CacheConfigurationException;
+import org.infinispan.commons.CacheListenerException;
 import org.jboss.logging.BasicLogger;
-import org.jboss.logging.Cause;
-import org.jboss.logging.LogMessage;
-import org.jboss.logging.Message;
-import org.jboss.logging.MessageLogger;
+import org.jboss.logging.annotations.Cause;
+import org.jboss.logging.annotations.LogMessage;
+import org.jboss.logging.annotations.Message;
+import org.jboss.logging.annotations.MessageLogger;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.net.SocketAddress;
+import java.util.List;
+import java.util.Collection;
 import java.util.Set;
 
 import static org.jboss.logging.Logger.Level.*;
@@ -87,10 +93,6 @@ public interface Log extends BasicLogger {
    @Message(value = "Server not in cluster anymore(%s), removing from the pool.", id = 4016)
    void removingServer(SocketAddress server);
 
-   @LogMessage(level = ERROR)
-   @Message(value = "Could not fetch transport", id = 4017)
-   void couldNotFetchTransport(@Cause Exception e);
-
    @LogMessage(level = WARN)
    @Message(value = "Unable to convert string property [%s] to an int! Using default value of %d", id = 4018)
    void unableToConvertStringPropertyToInt(String value, int defaultValue);
@@ -128,4 +130,54 @@ public interface Log extends BasicLogger {
 
    @Message(value = "Unable to parse server IP address %s", id = 4028)
    CacheConfigurationException parseErrorServerAddress(String server);
+
+   @Message(value = "Invalid max_retries (value=%s). Value should be greater or equal than zero.", id = 4029)
+   CacheConfigurationException invalidMaxRetries(int retriesPerServer);
+
+   @Message(value = "Cannot enable authentication without specifying a Callback Handler or a client Subject", id = 4030)
+   CacheConfigurationException invalidCallbackHandler();
+
+   @Message(value = "The selected authentication mechanism '%s' is not among the supported server mechanisms: %s", id = 4031)
+   SecurityException unsupportedMech(String authMech, List<String> serverMechs);
+
+   @Message(value = "'%s' is an invalid SASL mechanism", id = 4032)
+   CacheConfigurationException invalidSaslMechanism(String saslMechanism);
+
+   @Message(value = "Connection dedicated to listener with id=%s but received event for listener with id=%s", id = 4033)
+   IllegalStateException unexpectedListenerId(String listenerId, String expectedListenerId);
+
+   @Message(value = "Unable to unmarshall bytes %s", id = 4034)
+   HotRodClientException unableToUnmarshallBytes(String bytes, @Cause Exception e);
+
+   @Message(value = "Caught exception [%s] while invoking method [%s] on listener instance: %s", id = 4035)
+   CacheListenerException exceptionInvokingListener(String name, Method m, Object target, @Cause Throwable cause);
+
+   @Message(value = "Methods annotated with %s must accept exactly one parameter, of assignable from type %s", id = 4036)
+   IncorrectClientListenerException incorrectClientListener(String annotationName, Collection<?> allowedParameters);
+
+   @Message(value = "Methods annotated with %s should have a return type of void.", id = 4037)
+   IncorrectClientListenerException incorrectClientListener(String annotationName);
+
+   @LogMessage(level = ERROR)
+   @Message(value = "Unexpected error consuming event %s", id = 4038)
+   void unexpectedErrorConsumingEvent(ClientEvent clientEvent, @Cause Throwable t);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Unable to complete reading event from server %s", id = 4039)
+   void unableToReadEventFromServer(@Cause Throwable t, SocketAddress server);
+
+   @Message(value = "Cache listener class %s must be annotated with org.infinispan.client.hotrod.annotation.ClientListener", id = 4040)
+   IncorrectClientListenerException missingClientListenerAnnotation(String className);
+
+   @Message(value = "Unknown event type %s received", id = 4041)
+   HotRodClientException unknownEvent(short eventTypeId);
+
+   @LogMessage(level = ERROR)
+   @Message(value = "Unable to set method %s accessible", id = 4042)
+   void unableToSetAccesible(Method m, @Cause Exception e);
+
+   @LogMessage(level = ERROR)
+   @Message(value = "Unrecoverable error reading event from server %s, exiting event reader thread", id = 4043)
+   void unrecoverableErrorReadingEvent(@Cause Throwable t, SocketAddress server);
+
 }

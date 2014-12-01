@@ -14,7 +14,7 @@ import org.infinispan.commons.marshall.Marshaller;
  * @since 5.3
  */
 public abstract class AbstractConfigurationChildBuilder implements ConfigurationChildBuilder {
-   private final ConfigurationBuilder builder;
+   final ConfigurationBuilder builder;
 
    protected AbstractConfigurationChildBuilder(ConfigurationBuilder builder) {
       this.builder = builder;
@@ -111,13 +111,18 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    }
 
    @Override
-   public SslConfigurationBuilder ssl() {
-      return builder.ssl();
+   public SecurityConfigurationBuilder security() {
+      return builder.security();
    }
 
    @Override
    public ConfigurationBuilder tcpNoDelay(boolean tcpNoDelay) {
       return builder.tcpNoDelay(tcpNoDelay);
+   }
+
+   @Override
+   public ConfigurationBuilder tcpKeepAlive(boolean tcpKeepAlive) {
+      return builder.tcpKeepAlive(tcpKeepAlive);
    }
 
    @Override
@@ -133,6 +138,11 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    @Override
    public ConfigurationBuilder valueSizeEstimate(int valueSizeEstimate) {
       return builder.valueSizeEstimate(valueSizeEstimate);
+   }
+
+   @Override
+   public ConfigurationBuilder maxRetries(int retriesPerServer) {
+      return builder.maxRetries(retriesPerServer);
    }
 
    @Override

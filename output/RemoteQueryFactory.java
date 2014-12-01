@@ -26,13 +26,18 @@ public final class RemoteQueryFactory extends BaseQueryFactory<Query> {
       try {
          MarshallerRegistration.registerMarshallers(serializationContext);
       } catch (Exception e) {
-         //todo [anistor] need better exception handling
-         throw new HotRodClientException("Failed to initialise serialization context", e);
+         throw new HotRodClientException("Failed to initialise the Protobuf serialization context", e);
       }
    }
 
    @Override
    public QueryBuilder<Query> from(Class entityType) {
-      return new RemoteQueryBuilder(cache, serializationContext, entityType);
+      String typeName = serializationContext.getMarshaller(entityType).getTypeName();
+      return new RemoteQueryBuilder(this, cache, serializationContext, typeName);
+   }
+
+   @Override
+   public QueryBuilder<Query> from(String entityType) {
+      return new RemoteQueryBuilder(this, cache, serializationContext, entityType);
    }
 }
