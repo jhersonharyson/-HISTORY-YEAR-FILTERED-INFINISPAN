@@ -12,10 +12,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
 import org.infinispan.client.hotrod.configuration.ServerConfiguration;
 import org.infinispan.client.hotrod.event.ClientListenerNotifier;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.impl.EagerNearRemoteCache;
+import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingOperation.PingResult;
@@ -23,8 +26,10 @@ import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.CodecFactory;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.client.hotrod.near.NearCacheService;
 import org.infinispan.commons.api.BasicCacheContainer;
 import org.infinispan.commons.executors.ExecutorFactory;
 import org.infinispan.commons.marshall.Marshaller;
@@ -62,7 +67,6 @@ import org.infinispan.commons.util.Util;
  * <li><tt>infinispan.client.hotrod.force_return_values</tt>, default = false.  Whether or not to implicitly {@link org.infinispan.client.hotrod.Flag#FORCE_RETURN_VALUE} for all calls.</li>
  * <li><tt>infinispan.client.hotrod.tcp_no_delay</tt>, default = true.  Affects TCP NODELAY on the TCP stack.</li>
  * <li><tt>infinispan.client.hotrod.tcp_keep_alive</tt>, default = false.  Affects TCP KEEPALIVE on the TCP stack.</li>
- * <li><tt>infinispan.client.hotrod.ping_on_startup</tt>, default = true.  If true, a ping request is sent to a back end server in order to fetch cluster's topology.</li>
  * <li><tt>infinispan.client.hotrod.transport_factory</tt>, default = org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory - controls which transport to use.  Currently only the TcpTransport is supported.</li>
  * <li><tt>infinispan.client.hotrod.marshaller</tt>, default = org.infinispan.marshall.jboss.GenericJBossMarshaller.  Allows you to specify a custom {@link org.infinispan.marshall.Marshaller} implementation to serialize and deserialize user objects. For portable serialization payloads, you should configure the marshaller to be {@link org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller}</li>
  * <li><tt>infinispan.client.hotrod.async_executor_factory</tt>, default = org.infinispan.client.hotrod.impl.async.DefaultAsyncExecutorFactory.  Allows you to specify a custom asynchroous executor for async calls.</li>
@@ -140,15 +144,15 @@ public class RemoteCacheManager implements BasicCacheContainer {
 
 
    private volatile boolean started = false;
-   private final Map<String, RemoteCacheHolder> cacheName2RemoteCache = new HashMap<String, RemoteCacheHolder>();
-   private final AtomicInteger defaultCacheTopologyId = new AtomicInteger(-1);
+   private final Map<RemoteCacheKey, RemoteCacheHolder> cacheName2RemoteCache = new HashMap<>();
+   private final AtomicInteger defaultCacheTopologyId = new AtomicInteger(HotRodConstants.DEFAULT_CACHE_TOPOLOGY);
    private Configuration configuration;
    private Codec codec;
 
    private Marshaller marshaller;
-   private TransportFactory transportFactory;
+   protected TransportFactory transportFactory;
    private ExecutorService asyncExecutorService;
-   private ClientListenerNotifier listenerNotifier;
+   protected ClientListenerNotifier listenerNotifier;
 
    /**
     *
@@ -305,7 +309,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
             }
          }
       }
-      properties.setProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, configuration.balancingStrategy().getName());
+      properties.setProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, configuration.balancingStrategyClass().getName());
       properties.setProperty(ConfigurationProperties.CONNECT_TIMEOUT, Integer.toString(configuration.connectionTimeout()));
       for (int i = 1; i <= configuration.consistentHashImpl().length; i++) {
          properties.setProperty(ConfigurationProperties.HASH_FUNCTION_PREFIX + "." + i, configuration.consistentHashImpl()[i-1].getName());
@@ -313,7 +317,6 @@ public class RemoteCacheManager implements BasicCacheContainer {
       properties.setProperty(ConfigurationProperties.FORCE_RETURN_VALUES, Boolean.toString(configuration.forceReturnValues()));
       properties.setProperty(ConfigurationProperties.KEY_SIZE_ESTIMATE, Integer.toString(configuration.keySizeEstimate()));
       properties.setProperty(ConfigurationProperties.MARSHALLER, configuration.marshallerClass().getName());
-      properties.setProperty(ConfigurationProperties.PING_ON_STARTUP, Boolean.toString(configuration.pingOnStartup()));
       properties.setProperty(ConfigurationProperties.PROTOCOL_VERSION, configuration.protocolVersion());
       properties.setProperty(ConfigurationProperties.SO_TIMEOUT, Integer.toString(configuration.socketTimeout()));
       properties.setProperty(ConfigurationProperties.TCP_NO_DELAY, Boolean.toString(configuration.tcpNoDelay()));
@@ -515,7 +518,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
 
    /**
     * Retrieves a named cache from the remote server if the cache has been
-    * defined, otherwise if the cache name is underfined, it will return null.
+    * defined, otherwise if the cache name is undefined, it will return null.
     *
     * @param cacheName name of cache to retrieve
     * @return a cache instance identified by cacheName or null if the cache
@@ -551,8 +554,6 @@ public class RemoteCacheManager implements BasicCacheContainer {
       // Workaround for JDK6 NPE: http://bugs.sun.com/view_bug.do?bug_id=6427854
       SecurityActions.setProperty("sun.nio.ch.bugLevel", "\"\"");
 
-      codec = CodecFactory.getCodec(configuration.protocolVersion());
-
       transportFactory = Util.getInstance(configuration.transportFactory());
 
       if (marshaller == null) {
@@ -562,6 +563,8 @@ public class RemoteCacheManager implements BasicCacheContainer {
          }
       }
 
+      codec = CodecFactory.getCodec(configuration.protocolVersion());
+
       if (asyncExecutorService == null) {
          ExecutorFactory executorFactory = configuration.asyncExecutorFactory().factory();
          if (executorFactory == null) {
@@ -570,12 +573,12 @@ public class RemoteCacheManager implements BasicCacheContainer {
          asyncExecutorService = executorFactory.getExecutor(configuration.asyncExecutorFactory().properties());
       }
 
-      listenerNotifier = new ClientListenerNotifier(asyncExecutorService, codec, marshaller);
+      listenerNotifier = ClientListenerNotifier.create(codec, marshaller);
       transportFactory.start(codec, configuration, defaultCacheTopologyId, listenerNotifier);
 
       synchronized (cacheName2RemoteCache) {
          for (RemoteCacheHolder rcc : cacheName2RemoteCache.values()) {
-            startRemoteCache(rcc, defaultCacheTopologyId);
+            startRemoteCache(rcc);
          }
       }
 
@@ -604,6 +607,29 @@ public class RemoteCacheManager implements BasicCacheContainer {
       return started;
    }
 
+   /**
+    * Switch remote cache manager to a different cluster, previously
+    * declared via configuration. If the switch was completed successfully,
+    * this method returns {@code true}, otherwise it returns {@code false}.
+    *
+    * @param clusterName name of the cluster to which to switch to
+    * @return {@code true} if the cluster was switched, {@code false} otherwise
+    */
+   public boolean switchToCluster(String clusterName) {
+      return transportFactory.switchToCluster(clusterName);
+   }
+
+   /**
+    * Switch remote cache manager to a the default cluster, previously
+    * declared via configuration. If the switch was completed successfully,
+    * this method returns {@code true}, otherwise it returns {@code false}.
+    *
+    * @return {@code true} if the cluster was switched, {@code false} otherwise
+    */
+   public boolean switchToDefaultCluster() {
+      return transportFactory.switchToCluster(TcpTransportFactory.DEFAULT_CLUSTER_NAME);
+   }
+
    private Properties loadFromStream(InputStream stream) {
       Properties properties = new Properties();
       try {
@@ -617,40 +643,53 @@ public class RemoteCacheManager implements BasicCacheContainer {
    @SuppressWarnings("unchecked")
    private <K, V> RemoteCache<K, V> createRemoteCache(String cacheName, Boolean forceReturnValueOverride) {
       synchronized (cacheName2RemoteCache) {
-         if (!cacheName2RemoteCache.containsKey(cacheName)) {
-            RemoteCacheImpl<K, V> result = new RemoteCacheImpl<K, V>(this, cacheName);
+         RemoteCacheKey key = new RemoteCacheKey(cacheName, forceReturnValueOverride);
+         if (!cacheName2RemoteCache.containsKey(key)) {
+            RemoteCacheImpl<K, V> result = createRemoteCache(cacheName);
             RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride == null ? configuration.forceReturnValues() : forceReturnValueOverride);
-            AtomicInteger topologyId = cacheName.isEmpty() ? defaultCacheTopologyId : new AtomicInteger(-1);
-            startRemoteCache(rcc, topologyId);
-            if (configuration.pingOnStartup()) {
-               // If ping not successful assume that the cache does not exist
-               // Default cache is always started, so don't do for it
-               if (!cacheName.equals(RemoteCacheManager.DEFAULT_CACHE_NAME) &&
-                     ping(result) == PingResult.CACHE_DOES_NOT_EXIST) {
-                  return null;
-               }
+            startRemoteCache(rcc);
+
+            PingResult pingResult = result.resolveCompatibility();
+            // If ping not successful assume that the cache does not exist
+            // Default cache is always started, so don't do for it
+            if (!cacheName.equals(RemoteCacheManager.DEFAULT_CACHE_NAME) &&
+                  pingResult == PingResult.CACHE_DOES_NOT_EXIST) {
+               return null;
             }
+
+            result.start();
             // If ping on startup is disabled, or cache is defined in server
-            cacheName2RemoteCache.put(cacheName, rcc);
+            cacheName2RemoteCache.put(key, rcc);
             return result;
          } else {
-            return (RemoteCache<K, V>) cacheName2RemoteCache.get(cacheName).remoteCache;
+            return (RemoteCache<K, V>) cacheName2RemoteCache.get(key).remoteCache;
          }
       }
    }
 
-   private <K, V> PingResult ping(RemoteCacheImpl<K, V> cache) {
-      if (transportFactory == null) {
-         return PingResult.FAIL;
+   private <K, V> RemoteCacheImpl<K, V> createRemoteCache(String cacheName) {
+      switch (configuration.nearCache().mode()) {
+         case INVALIDATED:
+         case LAZY:
+            return new InvalidatedNearRemoteCache<>(this, cacheName,
+               createNearCacheService(configuration.nearCache()));
+         case EAGER:
+            return new EagerNearRemoteCache<>(this, cacheName,
+               createNearCacheService(configuration.nearCache()));
+         case DISABLED:
+         default:
+            return new RemoteCacheImpl<>(this, cacheName);
       }
-
-      return cache.ping();
    }
 
-   private void startRemoteCache(RemoteCacheHolder remoteCacheHolder, AtomicInteger topologyId) {
+   protected <K, V> NearCacheService<K, V> createNearCacheService(NearCacheConfiguration cfg) {
+      return NearCacheService.create(cfg, listenerNotifier);
+   }
+
+   private void startRemoteCache(RemoteCacheHolder remoteCacheHolder) {
       RemoteCacheImpl<?, ?> remoteCache = remoteCacheHolder.remoteCache;
       OperationsFactory operationsFactory = new OperationsFactory(
-            transportFactory, remoteCache.getName(), topologyId, remoteCacheHolder.forceReturnValue,
+            transportFactory, remoteCache.getName(), remoteCacheHolder.forceReturnValue,
             codec, listenerNotifier);
       remoteCache.init(marshaller, asyncExecutorService, operationsFactory, configuration.keySizeEstimate(), configuration.valueSizeEstimate());
    }
@@ -669,6 +708,35 @@ public class RemoteCacheManager implements BasicCacheContainer {
       return HotRodConstants.DEFAULT_CACHE_NAME_BYTES;
    }
 
+}
+
+class RemoteCacheKey {
+
+   final String cacheName;
+   final boolean forceReturnValue;
+
+   RemoteCacheKey(String cacheName, boolean forceReturnValue) {
+      this.cacheName = cacheName;
+      this.forceReturnValue = forceReturnValue;
+   }
+
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof RemoteCacheKey)) return false;
+
+      RemoteCacheKey that = (RemoteCacheKey) o;
+
+      if (forceReturnValue != that.forceReturnValue) return false;
+      return !(cacheName != null ? !cacheName.equals(that.cacheName) : that.cacheName != null);
+   }
+
+   @Override
+   public int hashCode() {
+      int result = cacheName != null ? cacheName.hashCode() : 0;
+      result = 31 * result + (forceReturnValue ? 1 : 0);
+      return result;
+   }
 }
 
 class RemoteCacheHolder {

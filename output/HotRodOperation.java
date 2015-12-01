@@ -4,7 +4,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import net.jcip.annotations.Immutable;
 
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
@@ -21,7 +20,7 @@ import org.infinispan.client.hotrod.impl.transport.Transport;
 @Immutable
 public abstract class HotRodOperation implements HotRodConstants {
 
-   protected final Flag[] flags;
+   protected final int flags;
 
    public final byte[] cacheName;
 
@@ -32,7 +31,7 @@ public abstract class HotRodOperation implements HotRodConstants {
    private static final byte NO_TX = 0;
    private static final byte XA_TX = 1;
 
-   protected HotRodOperation(Codec codec, Flag[] flags, byte[] cacheName, AtomicInteger topologyId) {
+   protected HotRodOperation(Codec codec, int flags, byte[] cacheName, AtomicInteger topologyId) {
       this.flags = flags;
       this.cacheName = cacheName;
       this.topologyId = topologyId;
@@ -45,7 +44,8 @@ public abstract class HotRodOperation implements HotRodConstants {
       HeaderParams params = new HeaderParams()
             .opCode(operationCode).cacheName(cacheName).flags(flags)
             .clientIntel(CLIENT_INTELLIGENCE_HASH_DISTRIBUTION_AWARE)
-            .topologyId(topologyId).txMarker(NO_TX);
+            .topologyId(topologyId).txMarker(NO_TX)
+            .topologyAge(transport.getTransportFactory().getTopologyAge());
       return codec.writeHeader(transport, params);
    }
 

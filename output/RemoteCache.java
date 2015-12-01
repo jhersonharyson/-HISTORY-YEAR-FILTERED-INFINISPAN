@@ -1,12 +1,14 @@
 package org.infinispan.client.hotrod;
 
+import org.infinispan.commons.api.BasicCache;
+import org.infinispan.commons.util.CloseableIterator;
+import org.infinispan.commons.util.concurrent.NotifyingFuture;
+import org.infinispan.query.dsl.Query;
+
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-
-import org.infinispan.commons.api.BasicCache;
-import org.infinispan.commons.util.concurrent.NotifyingFuture;
 
 /**
  * Provides remote reference to a Hot Rod server/cluster. It implements {@link org.infinispan.Cache}, but given its
@@ -124,6 +126,23 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
    boolean replaceWithVersion(K key, V newValue, long version, int lifespanSeconds, int maxIdleTimeSeconds);
 
    /**
+    * A overloaded form of {@link #replaceWithVersion(Object, Object, long)}
+    * which takes in lifespan and maximum idle time parameters.
+    *
+    * @param key key to use
+    * @param newValue new value to be associated with the key
+    * @param version numeric version that should match the one in the server
+    *                for the operation to succeed
+    * @param lifespan lifespan of the entry
+    * @param lifespanTimeUnit {@link java.util.concurrent.TimeUnit} for lifespan
+    * @param maxIdle the maximum amount of time this key is allowed
+    *                           to be idle for before it is considered as expired
+    * @param maxIdleTimeUnit {@link java.util.concurrent.TimeUnit} for maxIdle
+    * @return true if the value was replaced
+    */
+   boolean replaceWithVersion(K key, V newValue, long version, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit);
+
+   /**
     * @see #replaceWithVersion(Object, Object, long)
     */
    NotifyingFuture<Boolean> replaceWithVersionAsync(K key, V newValue, long version);
@@ -138,6 +157,36 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     */
    NotifyingFuture<Boolean> replaceWithVersionAsync(K key, V newValue, long version, int lifespanSeconds, int maxIdleSeconds);
 
+   /**
+    * @see #retrieveEntries(String, Object[], java.util.Set, int)
+    */
+   CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, Set<Integer> segments, int batchSize);
+
+   /**
+    * Retrieve entries from the server
+    *
+    * @param filterConverterFactory Factory name for the KeyValueFilterConverter or null for no filtering.
+    * @param filterConverterParams  Parameters to the KeyValueFilterConverter
+    * @param segments               The segments to iterate. If null all segments will be iterated. An empty set will filter out all entries.
+    * @param batchSize              The number of entries transferred from the server at a time.
+    * @return Iterator for the entries
+    */
+   CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, Object[] filterConverterParams, Set<Integer> segments, int batchSize);
+
+   /**
+    * @see #retrieveEntries(String, Object[], java.util.Set, int)
+    */
+   CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, int batchSize);
+
+   /**
+    * Retrieve entries from the server matching a query.
+    *
+    * @param filterQuery {@link Query}
+    * @param segments    The segments to iterate. If null all segments will be iterated. An empty set will filter out all entries.
+    * @param batchSize   The number of entries transferred from the server at a time.
+    * @return {@link CloseableIterator}
+    */
+   CloseableIterator<Entry<Object, Object>> retrieveEntriesByQuery(Query filterQuery, Set<Integer> segments, int batchSize);
 
    /**
     * Returns the {@link VersionedValue} associated to the supplied key param, or null if it doesn't exist.
@@ -270,6 +319,13 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     */
    Map<K, V> getBulk(int size);
 
+   /**
+    * Retrieves all of the entries for the provided keys.  A key will not be present in
+    * the resulting map if the entry was not found in the cache.
+    * @param keys The keys to find values for
+    * @return The entries that were present for the given keys
+    */
+   public Map<K, V> getAll(Set<? extends K> keys);
 
    /**
     * Returns the HotRod protocol version supported by this RemoteCache implementation
@@ -300,4 +356,13 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     */
    Set<Object> getListeners();
 
+   /**
+    * Executes a remote script passing a set of named parameters
+    */
+   <T> T execute(String scriptName, Map<String, ?> params);
+
+   /**
+    * Returns {@link CacheTopologyInfo} for this cache.
+    */
+   CacheTopologyInfo getCacheTopologyInfo();
 }

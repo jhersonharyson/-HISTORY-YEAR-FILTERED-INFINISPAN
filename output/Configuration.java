@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy;
 import org.infinispan.commons.configuration.BuiltBy;
 import org.infinispan.commons.marshall.Marshaller;
@@ -21,7 +22,8 @@ import org.infinispan.commons.marshall.Marshaller;
 public class Configuration {
 
    private final ExecutorFactoryConfiguration asyncExecutorFactory;
-   private final Class<? extends RequestBalancingStrategy> balancingStrategy;
+   private final Class<? extends RequestBalancingStrategy> balancingStrategyClass;
+   private final FailoverRequestBalancingStrategy balancingStrategy;
    private final WeakReference<ClassLoader> classLoader;
    private final ConnectionPoolConfiguration connectionPool;
    private final int connectionTimeout;
@@ -30,6 +32,7 @@ public class Configuration {
    private final int keySizeEstimate;
    private final Class<? extends Marshaller> marshallerClass;
    private final Marshaller marshaller;
+   @Deprecated
    private final boolean pingOnStartup;
    private final String protocolVersion;
    private final List<ServerConfiguration> servers;
@@ -40,12 +43,16 @@ public class Configuration {
    private final Class<? extends TransportFactory> transportFactory;
    private final int valueSizeEstimate;
    private final int maxRetries;
+   private final NearCacheConfiguration nearCache;
+   private final List<ClusterConfiguration> clusters;
 
-   Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Class<? extends RequestBalancingStrategy> balancingStrategy, ClassLoader classLoader,
+   Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Class<? extends RequestBalancingStrategy> balancingStrategyClass, FailoverRequestBalancingStrategy balancingStrategy, ClassLoader classLoader,
          ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate, Class<? extends Marshaller> marshallerClass,
          boolean pingOnStartup, String protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
-         Class<? extends TransportFactory> transportFactory, int valueSizeEstimate, int maxRetries) {
+         Class<? extends TransportFactory> transportFactory, int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
+         List<ClusterConfiguration> clusters) {
       this.asyncExecutorFactory = asyncExecutorFactory;
+      this.balancingStrategyClass = balancingStrategyClass;
       this.balancingStrategy = balancingStrategy;
       this.maxRetries = maxRetries;
       this.classLoader = new WeakReference<ClassLoader>(classLoader);
@@ -65,13 +72,17 @@ public class Configuration {
       this.tcpKeepAlive = tcpKeepAlive;
       this.transportFactory = transportFactory;
       this.valueSizeEstimate = valueSizeEstimate;
+      this.nearCache = nearCache;
+      this.clusters = clusters;
    }
 
-   Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Class<? extends RequestBalancingStrategy> balancingStrategy, ClassLoader classLoader,
+   Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Class<? extends RequestBalancingStrategy> balancingStrategyClass, FailoverRequestBalancingStrategy balancingStrategy, ClassLoader classLoader,
          ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate, Marshaller marshaller,
          boolean pingOnStartup, String protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
-         Class<? extends TransportFactory> transportFactory, int valueSizeEstimate, int maxRetries) {
+         Class<? extends TransportFactory> transportFactory, int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
+         List<ClusterConfiguration> clusters) {
       this.asyncExecutorFactory = asyncExecutorFactory;
+      this.balancingStrategyClass = balancingStrategyClass;
       this.balancingStrategy = balancingStrategy;
       this.maxRetries = maxRetries;
       this.classLoader = new WeakReference<ClassLoader>(classLoader);
@@ -91,13 +102,19 @@ public class Configuration {
       this.tcpKeepAlive = tcpKeepAlive;
       this.transportFactory = transportFactory;
       this.valueSizeEstimate = valueSizeEstimate;
+      this.nearCache = nearCache;
+      this.clusters = clusters;
    }
 
    public ExecutorFactoryConfiguration asyncExecutorFactory() {
       return asyncExecutorFactory;
    }
 
-   public Class<? extends RequestBalancingStrategy> balancingStrategy() {
+   public Class<? extends RequestBalancingStrategy> balancingStrategyClass() {
+      return balancingStrategyClass;
+   }
+
+   public FailoverRequestBalancingStrategy balancingStrategy() {
       return balancingStrategy;
    }
 
@@ -137,6 +154,14 @@ public class Configuration {
       return marshallerClass;
    }
 
+   public NearCacheConfiguration nearCache() {
+      return nearCache;
+   }
+
+   /**
+    * @deprecated No longer in effect, ping always happens on startup now.
+    */
+   @Deprecated
    public boolean pingOnStartup() {
       return pingOnStartup;
    }
@@ -147,6 +172,10 @@ public class Configuration {
 
    public List<ServerConfiguration> servers() {
       return servers;
+   }
+
+   public List<ClusterConfiguration> clusters() {
+      return clusters;
    }
 
    public int socketTimeout() {
@@ -179,10 +208,11 @@ public class Configuration {
 
    @Override
    public String toString() {
-      return "Configuration [asyncExecutorFactory=" + asyncExecutorFactory + ", balancingStrategy=" + balancingStrategy + ", classLoader=" + classLoader + ", connectionPool="
+      return "Configuration [asyncExecutorFactory=" + asyncExecutorFactory + ", balancingStrategyClass=" + balancingStrategyClass + ", balancingStrategy=" + balancingStrategy + ",classLoader=" + classLoader + ", connectionPool="
             + connectionPool + ", connectionTimeout=" + connectionTimeout + ", consistentHashImpl=" + Arrays.toString(consistentHashImpl) + ", forceReturnValues="
             + forceReturnValues + ", keySizeEstimate=" + keySizeEstimate + ", marshallerClass=" + marshallerClass + ", marshaller=" + marshaller + ", pingOnStartup="
             + pingOnStartup + ", protocolVersion=" + protocolVersion + ", servers=" + servers + ", socketTimeout=" + socketTimeout + ", security=" + security + ", tcpNoDelay=" + tcpNoDelay + ", tcpKeepAlive=" + tcpKeepAlive
-            + ", transportFactory=" + transportFactory + ", valueSizeEstimate=" + valueSizeEstimate + ", maxRetries=" + maxRetries + "]";
+            + ", transportFactory=" + transportFactory + ", valueSizeEstimate=" + valueSizeEstimate + ", maxRetries=" + maxRetries
+            + "nearCache=" + nearCache + "]";
    }
 }

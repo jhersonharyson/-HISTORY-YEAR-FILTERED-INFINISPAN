@@ -2,7 +2,7 @@ package org.infinispan.client.hotrod.marshall;
 
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.TestHelper;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.ProtobufUtil;
@@ -28,7 +28,7 @@ import static org.junit.Assert.*;
  * @author anistor@redhat.com
  * @since 7.1
  */
-@Test(testName = "client.hotrod.marshall.ProtoStreamMarshaller2Test", groups = "functional")
+@Test(testName = "client.hotrod.marshall.ProtoStreamMarshallerWithAnnotationsTest", groups = "functional")
 @CleanupAfterMethod
 public class ProtoStreamMarshallerWithAnnotationsTest extends SingleCacheManagerTest {
 
@@ -72,7 +72,7 @@ public class ProtoStreamMarshallerWithAnnotationsTest extends SingleCacheManager
       cacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
       cache = cacheManager.getCache();
 
-      hotRodServer = TestHelper.startHotRodServer(cacheManager);
+      hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
       ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort());

@@ -17,6 +17,8 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 import static org.infinispan.client.hotrod.Flag.FORCE_RETURN_VALUE;
@@ -42,55 +44,47 @@ public class SkipIndexingFlagTest extends SingleCacheManagerTest {
    private HotRodServer hotRodServer;
 
    public void testPut() {
-      //PutRequest
       performTest(RequestType.PUT);
    }
 
    public void testReplace() {
-      //ReplaceRequest
       performTest(RequestType.REPLACE);
-
    }
 
    public void testPutIfAbsent() {
-      //PutIfAbsentRequest
       performTest(RequestType.PUT_IF_ABSENT);
    }
 
    public void testReplaceIfUnmodified() {
-      //ReplaceIfUnmodifiedRequest
       performTest(RequestType.REPLACE_IF_UNMODIFIED);
    }
 
    public void testGet() {
-      //GetRequest
       performTest(RequestType.GET);
    }
 
    public void testGetWithVersion() {
-      //GetWithVersionRequest
       performTest(RequestType.GET_WITH_VERSION);
-
    }
 
    public void testGetWithMetadata() {
-      //GetWithMetadataRequest
       performTest(RequestType.GET_WITH_METADATA);
    }
 
    public void testRemove() {
-      //RemoveRequest
       performTest(RequestType.REMOVE);
    }
 
    public void testRemoveIfUnmodified() {
-      //RemoveIfUnmodifiedRequest
       performTest(RequestType.REMOVE_IF_UNMODIFIED);
    }
 
    public void testContainsKey() {
-      //ContainsKeyRequest
       performTest(RequestType.CONTAINS);
+   }
+
+   public void testPutAll() {
+      performTest(RequestType.PUT_ALL);
    }
 
    @Override
@@ -98,7 +92,7 @@ public class SkipIndexingFlagTest extends SingleCacheManagerTest {
       cacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
       cache = cacheManager.getCache();
 
-      hotRodServer = TestHelper.startHotRodServer(cacheManager);
+      hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
       Properties hotRodClientConf = new Properties();
       hotRodClientConf.put("infinispan.client.hotrod.server_list", "localhost:" + hotRodServer.getPort());
@@ -206,10 +200,19 @@ public class SkipIndexingFlagTest extends SingleCacheManagerTest {
          void execute(RemoteCache<String, String> cache) {
             cache.containsKey(KEY);
          }
-      };
+      },
+      PUT_ALL {
+         @Override
+         void execute(RemoteCache<String, String> cache) {
+            Map<String, String> data = new HashMap<String, String>();
+            data.put(KEY, VALUE);
+            cache.putAll(data);
+         }
+      },
+      ;
 
       private static boolean expectsFlag(RequestType type) {
-         return type == PUT || type == PUT_IF_ABSENT || type == REMOVE || type == REMOVE_IF_UNMODIFIED || type == REPLACE || type == REPLACE_IF_UNMODIFIED;
+         return type != CONTAINS && type != GET && type != GET_WITH_METADATA && type != GET_WITH_VERSION;
       }
 
       abstract void execute(RemoteCache<String, String> cache);

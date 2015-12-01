@@ -1,12 +1,12 @@
 package org.infinispan.client.hotrod.impl.operations;
 
 import net.jcip.annotations.Immutable;
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -20,16 +20,23 @@ public abstract class AbstractKeyValueOperation<T> extends AbstractKeyOperation<
 
    protected final byte[] value;
 
-   protected final int lifespan;
+   protected final long lifespan;
 
-   protected final int maxIdle;
+   protected final long maxIdle;
 
-   protected AbstractKeyValueOperation(Codec codec, TransportFactory transportFactory, byte[] key, byte[] cacheName,
-                                       AtomicInteger topologyId, Flag[] flags, byte[] value, int lifespan, int maxIdle) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags);
+   protected final TimeUnit lifespanTimeUnit;
+
+   protected final TimeUnit maxIdleTimeUnit;
+
+   protected AbstractKeyValueOperation(Codec codec, TransportFactory transportFactory, Object key, byte[] keyBytes, byte[] cacheName,
+                                       AtomicInteger topologyId, int flags, byte[] value,
+                                       long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
+      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags);
       this.value = value;
       this.lifespan = lifespan;
       this.maxIdle = maxIdle;
+      this.lifespanTimeUnit = lifespanTimeUnit;
+      this.maxIdleTimeUnit = maxIdleTimeUnit;
    }
 
    //[header][key length][key][lifespan][max idle][value length][value]
@@ -38,9 +45,8 @@ public abstract class AbstractKeyValueOperation<T> extends AbstractKeyOperation<
       HeaderParams params = writeHeader(transport, opCode);
 
       // 2) write key and value
-      transport.writeArray(key);
-      transport.writeVInt(lifespan);
-      transport.writeVInt(maxIdle);
+      transport.writeArray(keyBytes);
+      codec.writeExpirationParams(transport, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit);
       transport.writeArray(value);
       transport.flush();
 

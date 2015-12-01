@@ -1,11 +1,12 @@
 package org.infinispan.client.hotrod.test;
 
 import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
+import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
+import org.infinispan.server.hotrod.test.HotRodTestingUtil;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -13,8 +14,10 @@ import org.testng.annotations.AfterMethod;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
 import static org.infinispan.test.TestingUtil.blockUntilCacheStatusAchieved;
 import static org.infinispan.test.TestingUtil.blockUntilViewReceived;
+import static org.infinispan.test.TestingUtil.killCacheManagers;
 
 /**
  * Base test class for Hot Rod tests.
@@ -46,7 +49,7 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
    }
 
    protected RemoteCacheManager createClient(int i) {
-      return new RemoteCacheManager(createHotRodClientConfigurationBuilder(server(i).getPort()).build());
+      return new InternalRemoteCacheManager(createHotRodClientConfigurationBuilder(server(i).getPort()).build());
    }
 
    protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(int serverPort) {
@@ -54,8 +57,12 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
       clientBuilder.addServer()
             .host("localhost")
             .port(serverPort)
-            .pingOnStartup(false);
+            .maxRetries(maxRetries());
       return clientBuilder;
+   }
+
+   protected int maxRetries() {
+      return 0;
    }
 
    @AfterMethod(alwaysRun = true)
@@ -79,13 +86,29 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
 
    protected HotRodServer addHotRodServer(ConfigurationBuilder builder) {
       EmbeddedCacheManager cm = addClusterEnabledCacheManager(builder);
-      HotRodServer server = TestHelper.startHotRodServer(cm);
+      HotRodServer server = HotRodClientTestingUtil.startHotRodServer(cm);
+      servers.add(server);
+      return server;
+   }
+
+   protected HotRodServer addHotRodServer(ConfigurationBuilder builder, int port) {
+      EmbeddedCacheManager cm = addClusterEnabledCacheManager(builder);
+      HotRodServer server = HotRodTestingUtil.startHotRodServer(
+         cm, port, new HotRodServerConfigurationBuilder());
       servers.add(server);
       return server;
    }
 
    protected HotRodServer server(int i) {
       return servers.get(i);
+   }
+
+   protected void killServer(int i) {
+      HotRodServer server = servers.get(i);
+      killServers(server);
+      servers.remove(i);
+      killCacheManagers(cacheManagers.get(i));
+      cacheManagers.remove(i);
    }
 
    protected RemoteCacheManager client(int i) {

@@ -1,15 +1,16 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.jcip.annotations.Immutable;
 
 import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.commons.logging.BasicLogFactory;
-import org.infinispan.commons.util.Util;
 import org.jboss.logging.BasicLogger;
 
 /**
@@ -20,24 +21,25 @@ import org.jboss.logging.BasicLogger;
  * @since 4.1
  */
 @Immutable
-public class PutIfAbsentOperation extends AbstractKeyValueOperation<byte[]> {
+public class PutIfAbsentOperation<V> extends AbstractKeyValueOperation<V> {
 
    private static final BasicLogger log = BasicLogFactory.getLog(PutIfAbsentOperation.class);
+   private static final boolean trace = log.isTraceEnabled();
 
    public PutIfAbsentOperation(Codec codec, TransportFactory transportFactory,
-                               byte[] key, byte[] cacheName, AtomicInteger topologyId,
-                               Flag[] flags, byte[] value, int lifespan, int maxIdle) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags, value, lifespan, maxIdle);
+                               Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId,
+                               int flags, byte[] value, long lifespan,TimeUnit lifespanTimeUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
+      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, value, lifespan, lifespanTimeUnit, maxIdleTime, maxIdleTimeUnit);
    }
 
    @Override
-   protected byte[] executeOperation(Transport transport) {
+   protected V executeOperation(Transport transport) {
       short status = sendPutOperation(transport, PUT_IF_ABSENT_REQUEST, PUT_IF_ABSENT_RESPONSE);
-      byte[] previousValue = null;
-      if (status == NO_ERROR_STATUS || status == NOT_PUT_REMOVED_REPLACED_STATUS || status == NOT_EXECUTED_WITH_PREVIOUS) {
+      V previousValue = null;
+      if (HotRodConstants.isNotExecuted(status)) {
          previousValue = returnPossiblePrevValue(transport, status);
-         if (log.isTraceEnabled()) {
-            log.tracef("Returning from putIfAbsent: %s", Util.printArray(previousValue, false));
+         if (trace) {
+            log.tracef("Returning from putIfAbsent: %s", previousValue);
          }
       }
       return previousValue;

@@ -26,6 +26,7 @@ public class ConfigurationProperties {
    public static final String DEFAULT_EXECUTOR_FACTORY_POOL_SIZE = "infinispan.client.hotrod.default_executor_factory.pool_size";
    public static final String TCP_NO_DELAY = "infinispan.client.hotrod.tcp_no_delay";
    public static final String TCP_KEEP_ALIVE = "infinispan.client.hotrod.tcp_keep_alive";
+   @Deprecated
    public static final String PING_ON_STARTUP = "infinispan.client.hotrod.ping_on_startup";
    public static final String REQUEST_BALANCING_STRATEGY = "infinispan.client.hotrod.request_balancing_strategy";
    public static final String KEY_SIZE_ESTIMATE = "infinispan.client.hotrod.key_size_estimate";
@@ -51,13 +52,16 @@ public class ConfigurationProperties {
    public static final int DEFAULT_SO_TIMEOUT = 60000;
    public static final int DEFAULT_CONNECT_TIMEOUT = 60000;
    public static final int DEFAULT_MAX_RETRIES = 10;
+   public static final String PROTOCOL_VERSION_24 = "2.4";
+   public static final String PROTOCOL_VERSION_23 = "2.3";
+   public static final String PROTOCOL_VERSION_22 = "2.2";
    public static final String PROTOCOL_VERSION_21 = "2.1";
    public static final String PROTOCOL_VERSION_20 = "2.0";
    public static final String PROTOCOL_VERSION_13 = "1.3";
    public static final String PROTOCOL_VERSION_12 = "1.2";
    public static final String PROTOCOL_VERSION_11 = "1.1";
    public static final String PROTOCOL_VERSION_10 = "1.0";
-   public static final String DEFAULT_PROTOCOL_VERSION = PROTOCOL_VERSION_21;
+   public static final String DEFAULT_PROTOCOL_VERSION = PROTOCOL_VERSION_24;
 
    private final TypedProperties props;
 

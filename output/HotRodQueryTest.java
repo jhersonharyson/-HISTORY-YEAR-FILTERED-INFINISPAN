@@ -3,12 +3,12 @@ package org.infinispan.client.hotrod.query;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.Search;
-import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.AddressPB;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.UserPB;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.MarshallerRegistration;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commons.equivalence.ByteArrayEquivalence;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -66,7 +66,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       cacheManager.defineConfiguration(TEST_CACHE_NAME, builder.build());
       cache = cacheManager.getCache(TEST_CACHE_NAME);
 
-      hotRodServer = TestHelper.startHotRodServer(cacheManager);
+      hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort());
@@ -168,14 +168,13 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       assertUser1(list.get(0));
    }
 
-   @Test(enabled = false, expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*HQLLUCN000005:.*", description = "See https://issues.jboss.org/browse/ISPN-4423")
+   @Test(enabled = false, expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*HQL1000005:.*", description = "See https://issues.jboss.org/browse/ISPN-4423")
    public void testInvalidEmbeddedAttributeQuery() throws Exception {
       QueryFactory qf = Search.getQueryFactory(remoteCache);
 
       Query q = qf.from(UserPB.class)
-            .setProjection("addresses").build();
+            .select("addresses").build();
 
-      //todo [anistor] it would be best if the problem would be detected early at build() instead at doing it at list()
       q.list();  // exception expected
    }
 
@@ -187,7 +186,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       // get user back from remote cache via query and check its attributes
       QueryFactory qf = Search.getQueryFactory(remoteCache);
       Query query = qf.from(UserPB.class)
-            .setProjection("name", "surname")
+            .select("name", "surname")
             .having("name").eq("Tom").toBuilder()
             .build();
 

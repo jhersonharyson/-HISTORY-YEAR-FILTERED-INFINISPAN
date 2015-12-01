@@ -1,10 +1,11 @@
 package org.infinispan.client.hotrod.impl.operations;
 
-import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.event.ClientListenerNotifier;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.commons.util.Either;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
 import org.infinispan.client.hotrod.impl.transport.Transport;
@@ -27,6 +28,7 @@ public class AddClientListenerOperation extends RetryOnFailureOperation<Short> {
    private static final Log log = LogFactory.getLog(AddClientListenerOperation.class, Log.class);
 
    public final byte[] listenerId;
+   private final String cacheNameString;
 
    /**
     * Decicated transport instance for adding client listener. This transport
@@ -41,15 +43,16 @@ public class AddClientListenerOperation extends RetryOnFailureOperation<Short> {
    public final byte[][] converterFactoryParams;
 
    protected AddClientListenerOperation(Codec codec, TransportFactory transportFactory,
-         byte[] cacheName, AtomicInteger topologyId, Flag[] flags,
+         String cacheName, AtomicInteger topologyId, int flags,
          ClientListenerNotifier listenerNotifier, Object listener,
          byte[][] filterFactoryParams, byte[][] converterFactoryParams) {
-      super(codec, transportFactory, cacheName, topologyId, flags);
+      super(codec, transportFactory, RemoteCacheManager.cacheNameBytes(cacheName), topologyId, flags);
       this.listenerId = generateListenerId();
       this.listenerNotifier = listenerNotifier;
       this.listener = listener;
       this.filterFactoryParams = filterFactoryParams;
       this.converterFactoryParams = converterFactoryParams;
+      this.cacheNameString = cacheName;
    }
 
    private byte[] generateListenerId() {
@@ -92,7 +95,7 @@ public class AddClientListenerOperation extends RetryOnFailureOperation<Short> {
          either = codec.readHeaderOrEvent(dedicatedTransport, params, listenerId, listenerNotifier.getMarshaller());
          switch(either.type()) {
             case LEFT:
-               if (either.left() == NO_ERROR_STATUS)
+               if (HotRodConstants.isSuccess(either.left()))
                   listenerNotifier.startClientListener(listenerId);
                else // If error, remove it
                   listenerNotifier.removeClientListener(listenerId);
@@ -113,4 +116,7 @@ public class AddClientListenerOperation extends RetryOnFailureOperation<Short> {
       return l;
    }
 
+   public String getCacheName() {
+      return cacheNameString;
+   }
 }

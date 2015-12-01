@@ -39,20 +39,16 @@ public class RemoteCacheManagerTest extends SingleCacheManagerTest {
    @Override
    protected void setup() throws Exception {
       super.setup();
-      hotrodServer = TestHelper.startHotRodServer(cacheManager);
+      hotrodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
       port = hotrodServer.getPort();
       remoteCacheManager = null;
    }
 
    @AfterTest
    public void release() {
-      try {
-         TestingUtil.killCacheManagers(cacheManager);
-         HotRodClientTestingUtil.killServers(hotrodServer);
-         HotRodClientTestingUtil.killRemoteCacheManager(remoteCacheManager);
-      } catch (Exception e) {
-         e.printStackTrace();
-      }
+      TestingUtil.killCacheManagers(cacheManager);
+      HotRodClientTestingUtil.killServers(hotrodServer);
+      HotRodClientTestingUtil.killRemoteCacheManager(remoteCacheManager);
    }
 
    public void testNoArgConstructor() {

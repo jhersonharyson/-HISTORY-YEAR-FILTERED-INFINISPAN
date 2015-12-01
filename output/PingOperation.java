@@ -23,6 +23,7 @@ import org.jboss.logging.BasicLogger;
 public class PingOperation extends HotRodOperation {
 
    private static final BasicLogger log = BasicLogFactory.getLog(PingOperation.class);
+   private static final boolean trace = log.isTraceEnabled();
 
    private final Transport transport;
 
@@ -31,7 +32,7 @@ public class PingOperation extends HotRodOperation {
    }
 
    public PingOperation(Codec codec, AtomicInteger topologyId, Transport transport, byte[] cacheName) {
-      super(codec, null, cacheName, topologyId);
+      super(codec, 0, cacheName, topologyId);
       this.transport = transport;
    }
 
@@ -42,13 +43,15 @@ public class PingOperation extends HotRodOperation {
          transport.flush();
 
          short respStatus = readHeaderAndValidate(transport, params);
-         if (respStatus == HotRodConstants.NO_ERROR_STATUS) {
-            if (log.isTraceEnabled())
+         if (HotRodConstants.isSuccess(respStatus)) {
+            if (trace)
                log.tracef("Successfully validated transport: %s", transport);
-            return PingResult.SUCCESS;
+            return HotRodConstants.hasCompatibility(respStatus)
+               ? PingResult.SUCCESS_WITH_COMPAT
+               : PingResult.SUCCESS;
          } else {
             String hexStatus = Integer.toHexString(respStatus);
-            if (log.isTraceEnabled())
+            if (trace)
                log.tracef("Unknown response status: %s", hexStatus);
 
             throw new InvalidResponseException(
@@ -66,9 +69,19 @@ public class PingOperation extends HotRodOperation {
    public static enum PingResult {
       // Success if the ping request was responded correctly
       SUCCESS,
+      // Success with compatibility enabled
+      SUCCESS_WITH_COMPAT,
       // When the ping request fails due to non-existing cache
       CACHE_DOES_NOT_EXIST,
       // For any other type of failures
-      FAIL,
+      FAIL;
+
+      public boolean isSuccess() {
+         return this == SUCCESS || this == SUCCESS_WITH_COMPAT;
+      }
+
+      public boolean hasCompatibility() {
+         return this == SUCCESS_WITH_COMPAT;
+      }
    }
 }

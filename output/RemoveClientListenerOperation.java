@@ -1,9 +1,9 @@
 package org.infinispan.client.hotrod.impl.operations;
 
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.event.ClientListenerNotifier;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 
@@ -27,8 +27,8 @@ public class RemoveClientListenerOperation extends HotRodOperation {
    protected final TransportFactory transportFactory;
 
    protected RemoveClientListenerOperation(Codec codec, TransportFactory transportFactory,
-         byte[] cacheName, AtomicInteger topologyId, Flag[] flags,
-         ClientListenerNotifier listenerNotifier, Object listener) {
+                                           byte[] cacheName, AtomicInteger topologyId, int flags,
+                                           ClientListenerNotifier listenerNotifier, Object listener) {
       super(codec, flags, cacheName, topologyId);
       this.transportFactory = transportFactory;
       this.listenerNotifier = listenerNotifier;
@@ -46,7 +46,7 @@ public class RemoveClientListenerOperation extends HotRodOperation {
             transport.writeArray(listenerId);
             transport.flush();
             short status = readHeaderAndValidate(transport, params);
-            if (status == NO_ERROR_STATUS)
+            if (HotRodConstants.isSuccess(status))
                listenerNotifier.removeClientListener(listenerId);
          } finally {
             transportFactory.releaseTransport(transport);

@@ -1,8 +1,8 @@
 package org.infinispan.client.hotrod.impl.operations;
 
 import net.jcip.annotations.Immutable;
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 
@@ -18,17 +18,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ContainsKeyOperation extends AbstractKeyOperation<Boolean> {
 
    public ContainsKeyOperation(Codec codec, TransportFactory transportFactory,
-         byte[] key, byte[] cacheName, AtomicInteger topologyId, Flag[] flags) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags);
+         Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags) {
+      super(codec, transportFactory, key, keyBytes,cacheName, topologyId, flags);
    }
 
    @Override
    protected Boolean executeOperation(Transport transport) {
       boolean containsKey = false;
-      short status = sendKeyOperation(key, transport, CONTAINS_KEY_REQUEST, CONTAINS_KEY_RESPONSE);
-      if (status == KEY_DOES_NOT_EXIST_STATUS) {
+      short status = sendKeyOperation(keyBytes, transport, CONTAINS_KEY_REQUEST, CONTAINS_KEY_RESPONSE);
+      if (HotRodConstants.isNotExist(status)) {
          containsKey = false;
-      } else if (status == NO_ERROR_STATUS) {
+      } else if (HotRodConstants.isSuccess(status)) {
          containsKey = true;
       }
       return containsKey;

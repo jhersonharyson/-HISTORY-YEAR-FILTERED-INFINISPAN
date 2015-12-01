@@ -1,16 +1,15 @@
 package org.infinispan.client.hotrod.query;
 
-import org.hibernate.search.engine.spi.SearchFactoryImplementor;
-import org.hibernate.search.indexes.impl.IndexManagerHolder;
-import org.hibernate.search.indexes.spi.IndexManager;
+import org.hibernate.search.spi.SearchIntegrator;
 import org.infinispan.commons.equivalence.ByteArrayEquivalence;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.query.Search;
-import org.infinispan.query.remote.indexing.ProtobufValueWrapper;
+import org.infinispan.query.remote.impl.indexing.ProtobufValueWrapper;
 import org.testng.annotations.Test;
 
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotNull;
 
 /**
  * Verifying that the tuned query configuration also works for Remote Queries.
@@ -43,12 +42,9 @@ public class RemoteQueryDslConditionsTunedTest extends RemoteQueryDslConditionsF
 
    @Override
    public void testIndexPresence() {
-      SearchFactoryImplementor searchFactory = (SearchFactoryImplementor) Search.getSearchManager(getEmbeddedCache()).getSearchFactory();
-      IndexManagerHolder indexManagerHolder = searchFactory.getIndexManagerHolder();
-
-      assertTrue(searchFactory.getIndexedTypes().contains(ProtobufValueWrapper.class));
-      for (IndexManager manager : indexManagerHolder.getIndexManagers()) {
-         assertTrue(manager.getIndexName().contains(ProtobufValueWrapper.class.getName()));
-      }
+      SearchIntegrator searchIntegrator = Search.getSearchManager(getEmbeddedCache()).unwrap(SearchIntegrator.class);
+      assertTrue(searchIntegrator.getIndexedTypes().contains(ProtobufValueWrapper.class));
+      for (int shard = 0; shard < 6 ; shard++)
+          assertNotNull(searchIntegrator.getIndexManager(ProtobufValueWrapper.class.getName() + "." + shard));
    }
 }

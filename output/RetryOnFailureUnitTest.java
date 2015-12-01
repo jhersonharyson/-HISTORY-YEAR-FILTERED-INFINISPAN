@@ -7,6 +7,8 @@ import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.impl.operations.RetryOnFailureOperation;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
+import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory.ClusterSwitchStatus;
 import org.mockito.Mockito;
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
@@ -53,6 +55,7 @@ public class RetryOnFailureUnitTest {
    private void doRetryTest(int maxRetry, boolean failOnTransport) {
       TransportFactory mockTransport = Mockito.mock(TransportFactory.class);
       Mockito.when(mockTransport.getMaxRetries()).thenReturn(maxRetry);
+      Mockito.when(mockTransport.trySwitchCluster(Mockito.anyObject(), Mockito.anyObject())).thenReturn(ClusterSwitchStatus.NOT_SWITCHED);
       MockOperation mockOperation = new MockOperation(mockTransport, failOnTransport);
       try {
          mockOperation.execute();
@@ -61,7 +64,8 @@ public class RetryOnFailureUnitTest {
          //ignore
       }
       if (failOnTransport) {
-         assertEquals("Wrong getTransport() invocation.", maxRetry + 1, mockOperation.transportInvocationCount.get());
+         // Number of retries doubles as a result of dealing with complete shutdown recoveries
+         assertEquals("Wrong getTransport() invocation.", (maxRetry + 1) * 2, mockOperation.transportInvocationCount.get());
          assertEquals("Wrong execute() invocation.", 0, mockOperation.executeInvocationCount.get());
       } else {
          assertEquals("Wrong getTransport() invocation.", maxRetry + 1, mockOperation.transportInvocationCount.get());
@@ -76,7 +80,7 @@ public class RetryOnFailureUnitTest {
       private final boolean failOnTransport;
 
       public MockOperation(TransportFactory transportFactory, boolean failOnTransport) {
-         super(null, transportFactory, null, null, null);
+         super(null, transportFactory, null, null, 0);
          this.failOnTransport = failOnTransport;
          transportInvocationCount = new AtomicInteger(0);
          executeInvocationCount = new AtomicInteger(0);

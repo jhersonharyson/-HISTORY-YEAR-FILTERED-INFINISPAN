@@ -1,6 +1,7 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
 import org.infinispan.client.hotrod.annotation.ClientListener;
+import org.infinispan.client.hotrod.event.ClientCacheEntryExpiredEvent;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.logging.Log;
@@ -47,6 +48,9 @@ public class Codec21 extends Codec20 {
          case CACHE_ENTRY_REMOVED_EVENT_RESPONSE:
             eventType = ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED;
             break;
+         case CACHE_ENTRY_EXPIRED_EVENT_RESPONSE:
+            eventType = ClientEvent.Type.CLIENT_CACHE_ENTRY_EXPIRED;
+            break;
          case ERROR_RESPONSE:
             checkForErrorsInResponseStatus(transport, null, status);
          default:
@@ -61,27 +65,40 @@ public class Codec21 extends Codec20 {
       boolean isRetried = transport.readByte() == 1 ? true : false;
 
       if (isCustom == 1) {
-         final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+         final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
          return createCustomEvent(eventData, eventType, isRetried);
       } else if (isCustom == 2) { // New in 2.1, dealing with raw custom events
          return createCustomEvent(transport.readArray(), eventType, isRetried); // Raw data
       } else {
          switch (eventType) {
             case CLIENT_CACHE_ENTRY_CREATED:
-               Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+               Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
                long createdDataVersion = transport.readLong();
                return createCreatedEvent(createdKey, createdDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_MODIFIED:
-               Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+               Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
                long modifiedDataVersion = transport.readLong();
                return createModifiedEvent(modifiedKey, modifiedDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_REMOVED:
-               Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+               Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
                return createRemovedEvent(removedKey, isRetried);
+            case CLIENT_CACHE_ENTRY_EXPIRED:
+               Object expiredKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
+               return createExpiredEvent(expiredKey);
             default:
                throw getLog().unknownEvent(eventTypeId);
          }
       }
    }
 
+   protected ClientEvent createExpiredEvent(final Object key) {
+      return new ClientCacheEntryExpiredEvent() {
+         @Override public Object getKey() { return key; }
+         @Override public Type getType() { return Type.CLIENT_CACHE_ENTRY_EXPIRED; }
+         @Override
+         public String toString() {
+            return "ClientCacheEntryExpiredEvent(" + "key=" + key + ")";
+         }
+      };
+   }
 }

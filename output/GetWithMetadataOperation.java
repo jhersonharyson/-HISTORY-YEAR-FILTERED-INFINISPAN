@@ -4,10 +4,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import net.jcip.annotations.Immutable;
 
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.impl.MetadataValueImpl;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
@@ -21,22 +21,23 @@ import org.infinispan.client.hotrod.logging.LogFactory;
  * @since 5.2
  */
 @Immutable
-public class GetWithMetadataOperation extends AbstractKeyOperation<MetadataValue<byte[]>> {
+public class GetWithMetadataOperation<V> extends AbstractKeyOperation<MetadataValue<V>> {
 
    private static final Log log = LogFactory.getLog(GetWithMetadataOperation.class);
+   private static final boolean trace = log.isTraceEnabled();
 
    public GetWithMetadataOperation(Codec codec, TransportFactory transportFactory,
-            byte[] key, byte[] cacheName, AtomicInteger topologyId, Flag[] flags) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags);
+         Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags) {
+      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags);
    }
 
    @Override
-   protected MetadataValue<byte[]> executeOperation(Transport transport) {
-      short status = sendKeyOperation(key, transport, GET_WITH_METADATA, GET_WITH_METADATA_RESPONSE);
-      MetadataValue<byte[]> result = null;
-      if (status == KEY_DOES_NOT_EXIST_STATUS) {
+   protected MetadataValue<V> executeOperation(Transport transport) {
+      short status = sendKeyOperation(keyBytes, transport, GET_WITH_METADATA, GET_WITH_METADATA_RESPONSE);
+      MetadataValue<V> result = null;
+      if (HotRodConstants.isNotExist(status)) {
          result = null;
-      } else if (status == NO_ERROR_STATUS) {
+      } else if (HotRodConstants.isSuccess(status)) {
          short flags = transport.readByte();
          long creation = -1;
          int lifespan = -1;
@@ -51,11 +52,11 @@ public class GetWithMetadataOperation extends AbstractKeyOperation<MetadataValue
             maxIdle = transport.readVInt();
          }
          long version = transport.readLong();
-         if (log.isTraceEnabled()) {
+         if (trace) {
             log.tracef("Received version: %d", version);
          }
-         byte[] value = transport.readArray();
-         result = new MetadataValueImpl<byte[]>(creation, lifespan, lastUsed, maxIdle, version, value);
+         V value = codec.readUnmarshallByteArray(transport, status);
+         result = new MetadataValueImpl<V>(creation, lifespan, lastUsed, maxIdle, version, value);
       }
       return result;
    }

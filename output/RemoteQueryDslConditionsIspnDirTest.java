@@ -1,16 +1,10 @@
 package org.infinispan.client.hotrod.query;
 
-import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
-import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.MarshallerRegistration;
-import org.infinispan.commons.util.Util;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
 import org.testng.annotations.Test;
-
-import static org.junit.Assert.assertFalse;
 
 /**
  * Verifying the functionality of remote queries for infinispan directory_provider.
@@ -33,7 +27,7 @@ public class RemoteQueryDslConditionsIspnDirTest extends RemoteQueryDslCondition
       manager(0).defineConfiguration(TEST_CACHE_NAME, cfg.build());
       cache = manager(0).getCache(TEST_CACHE_NAME);
 
-      hotRodServer = TestHelper.startHotRodServer(manager(0));
+      hotRodServer = HotRodClientTestingUtil.startHotRodServer(manager(0));
 
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort());
@@ -41,13 +35,7 @@ public class RemoteQueryDslConditionsIspnDirTest extends RemoteQueryDslCondition
       remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
       remoteCache = remoteCacheManager.getCache(TEST_CACHE_NAME);
 
-      //initialize server-side serialization context
-      RemoteCache<String, String> metadataCache = remoteCacheManager.getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
-      metadataCache.put("sample_bank_account/bank.proto", Util.read(Util.getResourceAsStream("/sample_bank_account/bank.proto", getClass().getClassLoader())));
-      assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
-
-      //initialize client-side serialization context
-      MarshallerRegistration.registerMarshallers(ProtoStreamMarshaller.getSerializationContext(remoteCacheManager));
+      initProtoSchema(remoteCacheManager);
    }
 
    @Override

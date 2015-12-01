@@ -66,7 +66,7 @@ public class MultiHotRodServerQueryTest extends MultiHotRodServersTest {
       //initialize server-side serialization context
       ProtobufMetadataManager protobufMetadataManager = manager(0).getGlobalComponentRegistry().getComponent(ProtobufMetadataManager.class);
       protobufMetadataManager.registerProtofile("sample_bank_account/bank.proto", read("/sample_bank_account/bank.proto"));
-      assertNull(protobufMetadataManager.getFileErrors("/sample_bank_account/bank.proto"));
+      assertNull(protobufMetadataManager.getFileErrors("sample_bank_account/bank.proto"));
       assertNull(protobufMetadataManager.getFilesWithErrors());
 
       //initialize client-side serialization context
@@ -102,6 +102,9 @@ public class MultiHotRodServerQueryTest extends MultiHotRodServersTest {
 
       assertNotNull(remoteCache0.get(2));
       assertNotNull(remoteCache1.get(2));
+
+      // this value should be ignored gracefully
+      client(0).getCache().put("dummy", "a primitive value cannot be queried");
    }
 
    private String read(String classPathResource) throws IOException {
@@ -139,14 +142,13 @@ public class MultiHotRodServerQueryTest extends MultiHotRodServersTest {
       assertUser1(list.get(0));
    }
 
-   @Test(enabled = false, expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*HQLLUCN000005:.*", description = "See https://issues.jboss.org/browse/ISPN-4423")
+   @Test(enabled = false, expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*HQL100005:.*", description = "See https://issues.jboss.org/browse/ISPN-4423")
    public void testInvalidEmbeddedAttributeQuery() throws Exception {
       QueryFactory qf = Search.getQueryFactory(remoteCache1);
 
       Query q = qf.from(UserPB.class)
-            .setProjection("addresses").build();
+            .select("addresses").build();
 
-      //todo [anistor] it would be best if the problem would be detected early at build() instead at doing it at list()
       q.list();  // exception expected
    }
 
@@ -158,7 +160,7 @@ public class MultiHotRodServerQueryTest extends MultiHotRodServersTest {
       // get user back from remote cache via query and check its attributes
       QueryFactory qf = Search.getQueryFactory(remoteCache1);
       Query query = qf.from(UserPB.class)
-            .setProjection("name", "surname")
+            .select("name", "surname")
             .having("name").eq("Tom").toBuilder()
             .build();
 

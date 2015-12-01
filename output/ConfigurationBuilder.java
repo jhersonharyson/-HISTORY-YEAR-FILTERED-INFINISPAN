@@ -2,10 +2,13 @@ package org.infinispan.client.hotrod.configuration;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
@@ -15,6 +18,7 @@ import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV1;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
@@ -42,7 +46,8 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    private WeakReference<ClassLoader> classLoader;
    private final ExecutorFactoryConfigurationBuilder asyncExecutorFactory;
-   private Class<? extends RequestBalancingStrategy> balancingStrategy = RoundRobinBalancingStrategy.class;
+   private Class<? extends RequestBalancingStrategy> balancingStrategyClass = RoundRobinBalancingStrategy.class;
+   private FailoverRequestBalancingStrategy balancingStrategy;
    private final ConnectionPoolConfigurationBuilder connectionPool;
    private int connectionTimeout = ConfigurationProperties.DEFAULT_CONNECT_TIMEOUT;
    @SuppressWarnings("unchecked")
@@ -63,19 +68,29 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    private Class<? extends TransportFactory> transportFactory = TcpTransportFactory.class;
    private int valueSizeEstimate = ConfigurationProperties.DEFAULT_VALUE_SIZE;
    private int maxRetries = ConfigurationProperties.DEFAULT_MAX_RETRIES;
+   private final NearCacheConfigurationBuilder nearCache;
 
+   private final List<ClusterConfigurationBuilder> clusters = new ArrayList<ClusterConfigurationBuilder>();
 
    public ConfigurationBuilder() {
       this.classLoader = new WeakReference<ClassLoader>(Thread.currentThread().getContextClassLoader());
       this.connectionPool = new ConnectionPoolConfigurationBuilder(this);
       this.asyncExecutorFactory = new ExecutorFactoryConfigurationBuilder(this);
       this.security = new SecurityConfigurationBuilder(this);
+      this.nearCache = new NearCacheConfigurationBuilder(this);
    }
 
    @Override
    public ServerConfigurationBuilder addServer() {
       ServerConfigurationBuilder builder = new ServerConfigurationBuilder(this);
       this.servers.add(builder);
+      return builder;
+   }
+
+   @Override
+   public ClusterConfigurationBuilder addCluster(String clusterName) {
+      ClusterConfigurationBuilder builder = new ClusterConfigurationBuilder(this, clusterName);
+      this.clusters.add(builder);
       return builder;
    }
 
@@ -107,13 +122,19 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public ConfigurationBuilder balancingStrategy(String balancingStrategy) {
-      this.balancingStrategy = Util.loadClass(balancingStrategy, this.classLoader());
+      this.balancingStrategyClass = Util.loadClass(balancingStrategy, this.classLoader());
+      return this;
+   }
+
+   @Override
+   public ConfigurationBuilder balancingStrategy(FailoverRequestBalancingStrategy balancingStrategy) {
+      this.balancingStrategy = balancingStrategy;
       return this;
    }
 
    @Override
    public ConfigurationBuilder balancingStrategy(Class<? extends RequestBalancingStrategy> balancingStrategy) {
-      this.balancingStrategy = balancingStrategy;
+      this.balancingStrategyClass = balancingStrategy;
       return this;
    }
 
@@ -180,9 +201,16 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       return this;
    }
 
+   public NearCacheConfigurationBuilder nearCache() {
+      return nearCache;
+   }
+
+   /**
+    * @deprecated No longer in effect, ping always happens on startup now.
+    */
+   @Deprecated
    @Override
    public ConfigurationBuilder pingOnStartup(boolean pingOnStartup) {
-      this.pingOnStartup = pingOnStartup;
       return this;
    }
 
@@ -255,7 +283,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
          this.asyncExecutorFactory().factoryClass(typed.getProperty(ConfigurationProperties.ASYNC_EXECUTOR_FACTORY));
       }
       this.asyncExecutorFactory().withExecutorProperties(typed);
-      this.balancingStrategy(typed.getProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategy.getName()));
+      this.balancingStrategy(typed.getProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyClass.getName()));
       this.connectionPool.withPoolProperties(typed);
       this.connectionTimeout(typed.getIntProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectionTimeout));
       for (int i = 1; i <= consistentHashImpl.length; i++) {
@@ -266,7 +294,6 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       if (typed.containsKey(ConfigurationProperties.MARSHALLER)) {
          this.marshaller(typed.getProperty(ConfigurationProperties.MARSHALLER));
       }
-      this.pingOnStartup(typed.getBooleanProperty(ConfigurationProperties.PING_ON_STARTUP, pingOnStartup));
       this.protocolVersion(typed.getProperty(ConfigurationProperties.PROTOCOL_VERSION, protocolVersion));
       this.servers.clear();
       this.addServers(typed.getProperty(ConfigurationProperties.SERVER_LIST, ""));
@@ -286,8 +313,16 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       connectionPool.validate();
       asyncExecutorFactory.validate();
       security.validate();
+      nearCache.validate();
       if (maxRetries < 0) {
          throw log.invalidMaxRetries(maxRetries);
+      }
+      Set<String> clusterNameSet = new HashSet<String>(clusters.size());
+      for (ClusterConfigurationBuilder clusterConfigBuilder : clusters) {
+         if (!clusterNameSet.add(clusterConfigBuilder.getClusterName())) {
+            throw log.duplicateClusterDefinition(clusterConfigBuilder.getClusterName());
+         }
+         clusterConfigBuilder.validate();
       }
    }
 
@@ -301,14 +336,17 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       else {
          servers.add(new ServerConfiguration("127.0.0.1", ConfigurationProperties.DEFAULT_HOTROD_PORT));
       }
+
+      List<ClusterConfiguration> serverClusterConfigs = clusters.stream()
+         .map(ClusterConfigurationBuilder::create).collect(Collectors.toList());
       if (marshaller == null) {
-         return new Configuration(asyncExecutorFactory.create(), balancingStrategy, classLoader == null ? null : classLoader.get(), connectionPool.create(), connectionTimeout,
+         return new Configuration(asyncExecutorFactory.create(), balancingStrategyClass, balancingStrategy, classLoader == null ? null : classLoader.get(), connectionPool.create(), connectionTimeout,
                consistentHashImpl, forceReturnValues, keySizeEstimate, marshallerClass, pingOnStartup, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive, transportFactory,
-               valueSizeEstimate, maxRetries);
+               valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs);
       } else {
-         return new Configuration(asyncExecutorFactory.create(), balancingStrategy, classLoader == null ? null : classLoader.get(), connectionPool.create(), connectionTimeout,
+         return new Configuration(asyncExecutorFactory.create(), balancingStrategyClass, balancingStrategy, classLoader == null ? null : classLoader.get(), connectionPool.create(), connectionTimeout,
                consistentHashImpl, forceReturnValues, keySizeEstimate, marshaller, pingOnStartup, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive, transportFactory,
-               valueSizeEstimate, maxRetries);
+               valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs);
       }
    }
 
@@ -328,6 +366,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    public ConfigurationBuilder read(Configuration template) {
       this.classLoader = new WeakReference<ClassLoader>(template.classLoader());
       this.asyncExecutorFactory.read(template.asyncExecutorFactory());
+      this.balancingStrategyClass = template.balancingStrategyClass();
       this.balancingStrategy = template.balancingStrategy();
       this.connectionPool.read(template.connectionPool());
       this.connectionTimeout = template.connectionTimeout();
@@ -338,7 +377,6 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.keySizeEstimate = template.keySizeEstimate();
       this.marshaller = template.marshaller();
       this.marshallerClass = template.marshallerClass();
-      this.pingOnStartup = template.pingOnStartup();
       this.protocolVersion = template.protocolVersion();
       this.servers.clear();
       for (ServerConfiguration server : template.servers()) {
@@ -351,6 +389,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.transportFactory = template.transportFactory();
       this.valueSizeEstimate = template.valueSizeEstimate();
       this.maxRetries = template.maxRetries();
+      this.nearCache.read(template.nearCache());
       return this;
    }
 }

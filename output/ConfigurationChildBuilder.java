@@ -6,6 +6,7 @@ import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV1;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy;
 import org.infinispan.commons.marshall.Marshaller;
 
@@ -23,6 +24,11 @@ public interface ConfigurationChildBuilder {
    ServerConfigurationBuilder addServer();
 
    /**
+    * Adds a new remote server cluster
+    */
+   ClusterConfigurationBuilder addCluster(String clusterName);
+
+   /**
     * Adds a list of remote servers in the form: host1[:port][;host2[:port]]...
     */
    ConfigurationBuilder addServers(String servers);
@@ -38,6 +44,12 @@ public interface ConfigurationChildBuilder {
     * servers according to this strategy.
     */
    ConfigurationBuilder balancingStrategy(String balancingStrategy);
+
+   /**
+    * For replicated (vs distributed) Hot Rod server clusters, the client balances requests to the
+    * servers according to this strategy.
+    */
+   ConfigurationBuilder balancingStrategy(FailoverRequestBalancingStrategy balancingStrategy);
 
    /**
     * For replicated (vs distributed) Hot Rod server clusters, the client balances requests to the

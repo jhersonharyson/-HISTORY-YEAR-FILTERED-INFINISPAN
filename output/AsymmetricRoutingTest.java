@@ -2,6 +2,7 @@ package org.infinispan.client.hotrod;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -79,8 +80,8 @@ public class AsymmetricRoutingTest extends HitsAwareCacheManagersTest {
       EmbeddedCacheManager cm = addClusterEnabledCacheManager(defaultBuilder);
       cm.defineConfiguration(DIST_ONE_CACHE_NAME, distOneBuilder.build());
       cm.defineConfiguration(DIST_TWO_CACHE_NAME, distTwoBuilder.build());
-      HotRodServer server = TestHelper.startHotRodServer(cm);
-      hrServ2CacheManager.put(new InetSocketAddress(server.getHost(), server.getPort()), cm);
+      HotRodServer server = HotRodClientTestingUtil.startHotRodServer(cm);
+      addr2hrServer.put(new InetSocketAddress(server.getHost(), server.getPort()), server);
       return server;
    }
 

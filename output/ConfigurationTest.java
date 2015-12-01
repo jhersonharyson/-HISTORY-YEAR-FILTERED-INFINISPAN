@@ -4,12 +4,7 @@ import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertTrue;
 
-import java.io.IOException;
-
 import javax.security.auth.Subject;
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
-import javax.security.auth.callback.UnsupportedCallbackException;
 
 import org.infinispan.client.hotrod.SomeAsyncExecutorFactory;
 import org.infinispan.client.hotrod.SomeCustomConsistentHashV1;
@@ -95,6 +90,35 @@ public class ConfigurationTest {
    }
 
    @Test(expectedExceptions = CacheConfigurationException.class)
+   public void testMissingClusterNameDefinition() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.addCluster(null);
+      builder.build();
+   }
+
+   @Test(expectedExceptions = CacheConfigurationException.class)
+   public void testMissingHostDefinition() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.addCluster("test").addClusterNode(null, 1234);
+      builder.build();
+   }
+
+   @Test(expectedExceptions = CacheConfigurationException.class)
+   public void testMissingClusterServersDefinition() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.addCluster("test");
+      builder.build();
+   }
+
+   @Test(expectedExceptions = CacheConfigurationException.class)
+   public void testDuplicateClusterDefinition() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.addCluster("test").addClusterNode("host1", 1234);
+      builder.addCluster("test").addClusterNode("host1", 5678);
+      builder.build();
+   }
+
+   @Test(expectedExceptions = CacheConfigurationException.class)
    public void testInvalidAuthenticationConfig() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
       builder.security().authentication().enable().saslMechanism("PLAIN");
@@ -113,6 +137,18 @@ public class ConfigurationTest {
       builder.build();
    }
 
+   public void testClusters() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.addServers("1.1.1.1:9999");
+      builder.addCluster("my-cluster").addClusterNode("localhost", 8382);
+      Configuration cfg = builder.build();
+      assertEquals(1, cfg.servers().size());
+      assertServer("1.1.1.1", 9999, cfg.servers().get(0));
+      assertEquals(1, cfg.clusters().size());
+      assertEquals(1, cfg.clusters().get(0).getCluster().size());
+      assertServer("localhost", 8382, cfg.clusters().get(0).getCluster().get(0));
+   }
+
    private void assertServer(String host, int port, ServerConfiguration serverCfg) {
       assertEquals(host, serverCfg.host());
       assertEquals(port, serverCfg.port());
@@ -121,7 +157,7 @@ public class ConfigurationTest {
    private void validateConfiguration(Configuration configuration) {
       assertEquals(2, configuration.servers().size());
       assertEquals(SomeAsyncExecutorFactory.class, configuration.asyncExecutorFactory().factoryClass());
-      assertEquals(SomeRequestBalancingStrategy.class, configuration.balancingStrategy());
+      assertEquals(SomeRequestBalancingStrategy.class, configuration.balancingStrategyClass());
       assertEquals(SomeTransportfactory.class, configuration.transportFactory());
       assertEquals(SomeCustomConsistentHashV1.class, configuration.consistentHashImpl(1));
       assertEquals(100, configuration.connectionPool().maxActive());
@@ -140,7 +176,7 @@ public class ConfigurationTest {
       assertEquals(100, configuration.socketTimeout());
       assertFalse(configuration.tcpNoDelay());
       assertTrue(configuration.tcpKeepAlive());
-      assertFalse(configuration.pingOnStartup());
+      assertTrue(configuration.pingOnStartup());
       assertEquals(128, configuration.keySizeEstimate());
       assertEquals(1024, configuration.valueSizeEstimate());
       assertEquals(0, configuration.maxRetries());

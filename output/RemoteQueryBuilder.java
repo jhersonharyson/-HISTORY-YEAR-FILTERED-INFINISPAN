@@ -11,14 +11,15 @@ import org.infinispan.query.dsl.impl.BaseQueryBuilder;
  * @author anistor@redhat.com
  * @since 6.0
  */
-public final class RemoteQueryBuilder extends BaseQueryBuilder<Query> {
+final class RemoteQueryBuilder extends BaseQueryBuilder<Query> {
 
    private static final Log log = LogFactory.getLog(RemoteQueryBuilder.class);
+   private static final boolean trace = log.isTraceEnabled();
 
    private final RemoteCacheImpl cache;
    private final SerializationContext serializationContext;
 
-   public RemoteQueryBuilder(RemoteQueryFactory queryFactory, RemoteCacheImpl cache, SerializationContext serializationContext, String rootType) {
+   RemoteQueryBuilder(RemoteQueryFactory queryFactory, RemoteCacheImpl cache, SerializationContext serializationContext, String rootType) {
       super(queryFactory, rootType);
       this.cache = cache;
       this.serializationContext = serializationContext;
@@ -26,10 +27,11 @@ public final class RemoteQueryBuilder extends BaseQueryBuilder<Query> {
 
    @Override
    public Query build() {
-      String jpqlString = accept(new RemoteJPAQueryGenerator(serializationContext));
-      if (log.isTraceEnabled()) {
+      RemoteJPAQueryGenerator generator = new RemoteJPAQueryGenerator(serializationContext);
+      String jpqlString = accept(generator);
+      if (trace) {
          log.tracef("JPQL string : %s", jpqlString);
       }
-      return new RemoteQuery(cache, serializationContext, jpqlString, startOffset, maxResults);
+      return new RemoteQuery(queryFactory, cache, serializationContext, jpqlString, generator.getNamedParameters(), getProjectionPaths(), startOffset, maxResults);
    }
 }

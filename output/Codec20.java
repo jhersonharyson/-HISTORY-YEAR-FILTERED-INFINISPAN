@@ -1,6 +1,5 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.event.ClientCacheEntryCreatedEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryCustomEvent;
@@ -12,6 +11,7 @@ import org.infinispan.client.hotrod.exceptions.InvalidResponseException;
 import org.infinispan.client.hotrod.exceptions.RemoteIllegalLifecycleStateException;
 import org.infinispan.client.hotrod.exceptions.RemoteNodeSuspectException;
 import org.infinispan.client.hotrod.impl.transport.Transport;
+import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.marshall.MarshallerUtil;
@@ -24,7 +24,7 @@ import java.net.SocketAddress;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.infinispan.commons.util.Util.*;
@@ -44,6 +44,11 @@ public class Codec20 implements Codec, HotRodConstants {
    final boolean trace = getLog().isTraceEnabled();
 
    @Override
+   public <T> T readUnmarshallByteArray(Transport transport, short status) {
+      return CodecUtils.readUnmarshallByteArray(transport, status);
+   }
+
+   @Override
    public HeaderParams writeHeader(Transport transport, HeaderParams params) {
       return writeHeader(transport, params, HotRodConstants.VERSION_20);
    }
@@ -55,6 +60,21 @@ public class Codec20 implements Codec, HotRodConstants {
       writeNamedFactory(transport, clientListener.filterFactoryName(), filterFactoryParams);
       writeNamedFactory(transport, clientListener.converterFactoryName(), converterFactoryParams);
    }
+
+   @Override
+   public void writeExpirationParams(Transport transport, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
+      if (!CodecUtils.isIntCompatible(lifespan)) {
+         log.warn("Lifespan value greater than the max supported size (Integer.MAX_VALUE), this can cause precision loss");
+      }
+      if (!CodecUtils.isIntCompatible(maxIdle)) {
+         log.warn("MaxIdle value greater than the max supported size (Integer.MAX_VALUE), this can cause precision loss");
+      }
+      int lifespanSeconds = CodecUtils.toSeconds(lifespan, lifespanTimeUnit);
+      int maxIdleSeconds = CodecUtils.toSeconds(maxIdle, maxIdleTimeUnit);
+      transport.writeVInt(lifespanSeconds);
+      transport.writeVInt(maxIdleSeconds);
+   }
+
 
    private void writeNamedFactory(Transport transport, String factoryName, byte[][] params) {
       transport.writeString(factoryName);
@@ -77,14 +97,15 @@ public class Codec20 implements Codec, HotRodConstants {
       transport.writeByte(version);
       transport.writeByte(params.opCode);
       transport.writeArray(params.cacheName);
-      int joinedFlags = HeaderParams.joinFlags(params.flags);
+      int joinedFlags = params.flags;
       transport.writeVInt(joinedFlags);
       transport.writeByte(params.clientIntel);
-      transport.writeVInt(params.topologyId.get());
+      int topologyId = params.topologyId.get();
+      transport.writeVInt(topologyId);
 
       if (trace)
-         getLog().tracef("Wrote header for message %d. Operation code: %#04x. Flags: %#x",
-            params.messageId, params.opCode, joinedFlags);
+         getLog().tracef("Wrote header for messageId=%d to %s. Operation code: %#04x. Flags: %#x. Topology id: %s",
+            params.messageId, transport, params.opCode, joinedFlags, topologyId);
 
       return params;
    }
@@ -145,6 +166,7 @@ public class Codec20 implements Codec, HotRodConstants {
             break;
          case ERROR_RESPONSE:
             checkForErrorsInResponseStatus(transport, null, status);
+            // Fall through if we didn't throw an exception already
          default:
             throw log.unknownEvent(eventTypeId);
       }
@@ -157,20 +179,20 @@ public class Codec20 implements Codec, HotRodConstants {
       boolean isRetried = transport.readByte() == 1 ? true : false;
 
       if (isCustom == 1) {
-         final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+         final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
          return createCustomEvent(eventData, eventType, isRetried);
       } else {
          switch (eventType) {
             case CLIENT_CACHE_ENTRY_CREATED:
-               Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+               Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
                long createdDataVersion = transport.readLong();
                return createCreatedEvent(createdKey, createdDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_MODIFIED:
-               Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+               Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
                long modifiedDataVersion = transport.readLong();
                return createModifiedEvent(modifiedKey, modifiedDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_REMOVED:
-               Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
+               Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
                return createRemovedEvent(removedKey, isRetried);
             default:
                throw log.unknownEvent(eventTypeId);
@@ -195,12 +217,13 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public byte[] returnPossiblePrevValue(Transport transport, short status, Flag[] flags) {
-      if (status == SUCCESS_WITH_PREVIOUS || status == NOT_EXECUTED_WITH_PREVIOUS) {
+   public Object returnPossiblePrevValue(Transport transport, short status, int flags) {
+      Marshaller marshaller = transport.getTransportFactory().getMarshaller();
+      if (HotRodConstants.hasPrevious(status)) {
          byte[] bytes = transport.readArray();
-         if (log.isTraceEnabled()) log.tracef("Previous value bytes is: %s", Util.printArray(bytes, false));
+         if (trace) getLog().tracef("Previous value bytes is: %s", Util.printArray(bytes, false));
          //0-length response means null
-         return bytes.length == 0 ? null : bytes;
+         return bytes.length == 0 ? null : MarshallerUtil.bytes2obj(marshaller, bytes, status);
       } else {
          return null;
       }
@@ -273,7 +296,7 @@ public class Codec20 implements Codec, HotRodConstants {
       }
 
       if (trace)
-         localLog.tracef("Received response for message id: %d", receivedMessageId);
+         localLog.tracef("Received response for messageId=%d", receivedMessageId);
 
       return receivedMessageId;
    }
@@ -299,8 +322,7 @@ public class Codec20 implements Codec, HotRodConstants {
 
    protected void checkForErrorsInResponseStatus(Transport transport, HeaderParams params, short status) {
       final Log localLog = getLog();
-      boolean isTrace = localLog.isTraceEnabled();
-      if (isTrace) localLog.tracef("Received operation status: %#x", status);
+      if (trace) localLog.tracef("Received operation status: %#x", status);
 
       String msgFromServer;
       try {
@@ -313,7 +335,7 @@ public class Codec20 implements Codec, HotRodConstants {
             case HotRodConstants.UNKNOWN_VERSION_STATUS: {
                // If error, the body of the message just contains a message
                msgFromServer = transport.readString();
-               if (status == HotRodConstants.COMMAND_TIMEOUT_STATUS && isTrace) {
+               if (status == HotRodConstants.COMMAND_TIMEOUT_STATUS && trace) {
                   localLog.tracef("Server-side timeout performing operation: %s", msgFromServer);
                } else {
                   localLog.errorFromServer(msgFromServer);
@@ -322,11 +344,11 @@ public class Codec20 implements Codec, HotRodConstants {
             }
             case HotRodConstants.ILLEGAL_LIFECYCLE_STATE:
                msgFromServer = transport.readString();
-               throw new RemoteIllegalLifecycleStateException(msgFromServer, params.messageId, status);
+               throw new RemoteIllegalLifecycleStateException(msgFromServer, params.messageId, status, transport.getRemoteSocketAddress());
             case HotRodConstants.NODE_SUSPECTED:
                // Handle both Infinispan's and JGroups' suspicions
                msgFromServer = transport.readString();
-               if (isTrace)
+               if (trace)
                   localLog.tracef("A remote node was suspected while executing messageId=%d. " +
                         "Check if retry possible. Message from server: %s", params.messageId, msgFromServer);
 
@@ -354,13 +376,12 @@ public class Codec20 implements Codec, HotRodConstants {
    protected void readNewTopologyIfPresent(Transport transport, HeaderParams params) {
       short topologyChangeByte = transport.readByte();
       if (topologyChangeByte == 1)
-         readNewTopologyAndHash(transport, params.topologyId, params.cacheName);
+         readNewTopologyAndHash(transport, params);
    }
 
-   protected void readNewTopologyAndHash(Transport transport, AtomicInteger topologyId, byte[] cacheName) {
+   protected void readNewTopologyAndHash(Transport transport, HeaderParams params) {
       final Log localLog = getLog();
       int newTopologyId = transport.readVInt();
-      topologyId.set(newTopologyId);
 
       int clusterSize = transport.readVInt();
       SocketAddress[] addresses = new SocketAddress[clusterSize];
@@ -373,26 +394,42 @@ public class Codec20 implements Codec, HotRodConstants {
       short hashFunctionVersion = transport.readByte();
       int numSegments = transport.readVInt();
       SocketAddress[][] segmentOwners = new SocketAddress[numSegments][];
-      for (int i = 0; i < numSegments; i++) {
-         short numOwners = transport.readByte();
-         segmentOwners[i] = new SocketAddress[numOwners];
-         for (int j = 0; j < numOwners; j++) {
-            int memberIndex = transport.readVInt();
-            segmentOwners[i][j] = addresses[memberIndex];
+      if (hashFunctionVersion > 0) {
+         for (int i = 0; i < numSegments; i++) {
+            short numOwners = transport.readByte();
+            segmentOwners[i] = new SocketAddress[numOwners];
+            for (int j = 0; j < numOwners; j++) {
+               int memberIndex = transport.readVInt();
+               segmentOwners[i][j] = addresses[memberIndex];
+            }
          }
       }
 
-      List<SocketAddress> addressList = Arrays.asList(addresses);
-      if (localLog.isInfoEnabled()) {
-         localLog.newTopology(transport.getRemoteSocketAddress(), newTopologyId,
+      TransportFactory transportFactory = transport.getTransportFactory();
+      int currentTopology = transportFactory.getTopologyId(params.cacheName);
+      int topologyAge = transportFactory.getTopologyAge();
+      if (params.topologyAge == topologyAge && currentTopology != newTopologyId) {
+         params.topologyId.set(newTopologyId);
+         List<SocketAddress> addressList = Arrays.asList(addresses);
+         if (localLog.isInfoEnabled()) {
+            localLog.newTopology(transport.getRemoteSocketAddress(), newTopologyId, topologyAge,
                addresses.length, new HashSet<SocketAddress>(addressList));
-      }
-      transport.getTransportFactory().updateServers(addressList, cacheName);
-      if (hashFunctionVersion == 0) {
-         if (trace)
-            localLog.trace("Not using a consistent hash function (hash function version == 0).");
+         }
+         transportFactory.updateServers(addressList, params.cacheName, false);
+         if (hashFunctionVersion == 0) {
+            if (trace)
+               localLog.trace("Not using a consistent hash function (hash function version == 0).");
+         } else {
+            if (trace)
+               localLog.tracef("Updating client hash function with %s number of segments", numSegments);
+
+         }
+         transportFactory.updateHashFunction(segmentOwners,
+            numSegments, hashFunctionVersion, params.cacheName, params.topologyId);
       } else {
-         transport.getTransportFactory().updateHashFunction(segmentOwners, numSegments, hashFunctionVersion, cacheName);
+         if (trace)
+            log.tracef("Outdated topology received (topology id = %s, topology age = %s), so ignoring it: %s",
+               newTopologyId, topologyAge, Arrays.toString(addresses));
       }
    }
 

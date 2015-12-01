@@ -15,11 +15,12 @@ public class HeaderParams {
    short opCode;
    short opRespCode;
    byte[] cacheName;
-   Flag[] flags;
+   int flags;
    byte clientIntel;
    byte txMarker;
    AtomicInteger topologyId;
    long messageId;
+   int topologyAge;
 
    public HeaderParams opCode(short opCode) {
       this.opCode = opCode;
@@ -32,7 +33,7 @@ public class HeaderParams {
       return this;
    }
 
-   public HeaderParams flags(Flag[] flags) {
+   public HeaderParams flags(int flags) {
       this.flags = flags;
       return this;
    }
@@ -54,6 +55,11 @@ public class HeaderParams {
 
    public HeaderParams messageId(long messageId) {
       this.messageId = messageId;
+      return this;
+   }
+
+   public HeaderParams topologyAge(int topologyAge) {
+      this.topologyAge = topologyAge;
       return this;
    }
 
@@ -101,6 +107,18 @@ public class HeaderParams {
             return HotRodConstants.REMOVE_CLIENT_LISTENER_RESPONSE;
          case HotRodConstants.SIZE_REQUEST:
             return HotRodConstants.SIZE_RESPONSE;
+         case HotRodConstants.EXEC_REQUEST:
+            return HotRodConstants.EXEC_RESPONSE;
+         case HotRodConstants.PUT_ALL_REQUEST:
+            return HotRodConstants.PUT_ALL_RESPONSE;
+         case HotRodConstants.GET_ALL_REQUEST:
+            return HotRodConstants.GET_ALL_RESPONSE;
+         case HotRodConstants.ITERATION_START_REQUEST:
+            return HotRodConstants.ITERATION_START_RESPONSE;
+         case HotRodConstants.ITERATION_NEXT_REQUEST:
+            return HotRodConstants.ITERATION_NEXT_RESPONSE;
+         case HotRodConstants.ITERATION_END_REQUEST:
+            return HotRodConstants.ITERATION_END_RESPONSE;
          default:
             throw new IllegalStateException("Unknown operation code: " + opCode);
       }

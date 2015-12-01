@@ -17,6 +17,7 @@ import java.lang.reflect.Method;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.Collection;
+import java.util.NoSuchElementException;
 import java.util.Set;
 
 import static org.jboss.logging.Logger.Level.*;
@@ -52,8 +53,8 @@ public interface Log extends BasicLogger {
    void errorFromServer(String message);
 
    @LogMessage(level = INFO)
-   @Message(value = "%s sent new topology view (id=%d) containing %d addresses: %s", id = 4006)
-   void newTopology(SocketAddress address, int viewId, int topologySize, Set<SocketAddress> topology);
+   @Message(value = "%s sent new topology view (id=%d, age=%d) containing %d addresses: %s", id = 4006)
+   void newTopology(SocketAddress address, int viewId, int age, int topologySize, Set<SocketAddress> topology);
 
    @LogMessage(level = ERROR)
    @Message(value = "Exception encountered. Retry %d out of %d", id = 4007)
@@ -180,4 +181,61 @@ public interface Log extends BasicLogger {
    @Message(value = "Unrecoverable error reading event from server %s, exiting event reader thread", id = 4043)
    void unrecoverableErrorReadingEvent(@Cause Throwable t, SocketAddress server);
 
+   @LogMessage(level = ERROR)
+   @Message(value = "Unable to read %s bytes %s", id = 4044)
+   void unableToUnmarshallBytesError(String element, String bytes, @Cause Exception e);
+
+   @Message(value = "When enabling near caching, number of max entries must be configured", id = 4045)
+   CacheConfigurationException nearCacheMaxEntriesUndefined();
+
+   @LogMessage(level = INFO)
+   @Message(value = "Successfully closed remote iterator '%s'", id = 4046)
+   void iterationClosed(String iterationId);
+
+   @Message(value = "Invalid iteration id '%s'", id = 4047)
+   IllegalStateException errorClosingIteration(String iterationId);
+
+   @Message(value = "Invalid iteration id '%s'", id = 4048)
+   NoSuchElementException errorRetrievingNext(String iterationId);
+
+   @LogMessage(level = WARN)
+   @Message(value = "No consistent hash is available in the client, starting iteration using the configured request balancing strategy", id = 4049)
+   void noConsistentHashAvailable();
+
+   @LogMessage(level = INFO)
+   @Message(value = "Switched to cluster '%s'", id = 4050)
+   void switchedToCluster(String clusterName);
+
+   @LogMessage(level = INFO)
+   @Message(value = "Switched back to main cluster", id = 4051)
+   void switchedBackToMainCluster();
+
+   @LogMessage(level = INFO)
+   @Message(value = "Manually switched to cluster '%s'", id = 4052)
+   void manuallySwitchedToCluster(String clusterName);
+
+   @LogMessage(level = INFO)
+   @Message(value = "Manually switched back to main cluster", id = 4053)
+   void manuallySwitchedBackToMainCluster();
+
+   @Message(value = "Name of the failover cluster needs to be specified", id = 4054)
+   CacheConfigurationException missingClusterNameDefinition();
+
+   @Message(value = "Host needs to be specified in server definition of failover cluster", id = 4055)
+   CacheConfigurationException missingHostDefinition();
+
+   @Message(value = "At least one server address needs to be specified for failover cluster %s", id = 4056)
+   CacheConfigurationException missingClusterServersDefinition(String siteName);
+
+   @Message(value = "Duplicate failover cluster %s has been specified", id = 4057)
+   CacheConfigurationException duplicateClusterDefinition(String siteName);
+
+   @Message(value = "The client listener must use raw data when it uses a query as a filter: %s", id = 4058)
+   IncorrectClientListenerException clientListenerMustUseRawData(String className);
+
+   @Message(value = "The client listener must use the '%s' filter/converter factory", id = 4059)
+   IncorrectClientListenerException clientListenerMustUseDesignatedFilterConverterFactory(String filterConverterFactoryName);
+
+   @Message(value = "Query parameter '%s' was not set", id = 4060)
+   IllegalStateException queryParameterNotSet(String filterConverterFactoryName);
 }

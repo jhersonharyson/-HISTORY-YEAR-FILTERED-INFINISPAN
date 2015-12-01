@@ -1,7 +1,6 @@
 package org.infinispan.client.hotrod.impl.operations;
 
 import net.jcip.annotations.Immutable;
-import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.impl.VersionedOperationResponse;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
@@ -18,23 +17,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 4.1
  */
 @Immutable
-public class RemoveIfUnmodifiedOperation extends AbstractKeyOperation<VersionedOperationResponse> {
+public class RemoveIfUnmodifiedOperation<V> extends AbstractKeyOperation<VersionedOperationResponse<V>> {
 
    private final long version;
 
    public RemoveIfUnmodifiedOperation(Codec codec, TransportFactory transportFactory,
-            byte[] key, byte[] cacheName, AtomicInteger topologyId, Flag[] flags, long version) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags);
+         Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags, long version) {
+      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags);
       this.version = version;
    }
 
    @Override
-   protected VersionedOperationResponse executeOperation(Transport transport) {
+   protected VersionedOperationResponse<V> executeOperation(Transport transport) {
       // 1) write header
       HeaderParams params = writeHeader(transport, REMOVE_IF_UNMODIFIED_REQUEST);
 
       //2) write message body
-      transport.writeArray(key);
+      transport.writeArray(keyBytes);
       transport.writeLong(version);
       transport.flush();
 
