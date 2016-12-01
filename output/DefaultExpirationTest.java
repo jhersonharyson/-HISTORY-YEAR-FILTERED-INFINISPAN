@@ -1,6 +1,11 @@
 package org.infinispan.client.hotrod;
 
-import org.testng.annotations.Test;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.assertHotRodEquals;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertFalse;
+import static org.testng.AssertJUnit.assertTrue;
+
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
@@ -12,10 +17,7 @@ import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterClass;
-
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.assertHotRodEquals;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.testng.AssertJUnit.*;
+import org.testng.annotations.Test;
 
 /**
  * @author Tristan Tarrant
@@ -47,8 +49,10 @@ public class DefaultExpirationTest extends SingleCacheManagerTest {
 
    protected RemoteCacheManager getRemoteCacheManager() {
       Properties config = new Properties();
-      config.put("infinispan.client.hotrod.server_list", "127.0.0.1:" + hotrodServer.getPort());
-      return new RemoteCacheManager(config);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServer().host("localhost").port(hotrodServer.getPort());
+      return new RemoteCacheManager(clientBuilder.build());
    }
 
 

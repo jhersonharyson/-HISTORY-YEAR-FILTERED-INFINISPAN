@@ -1,39 +1,18 @@
 package org.infinispan.client.hotrod.event;
 
+import static org.infinispan.client.hotrod.filter.Filters.makeFactoryParams;
+
 import org.infinispan.client.hotrod.RemoteCache;
-import org.infinispan.client.hotrod.annotation.ClientCacheEntryCreated;
-import org.infinispan.client.hotrod.annotation.ClientCacheEntryExpired;
-import org.infinispan.client.hotrod.annotation.ClientCacheEntryModified;
-import org.infinispan.client.hotrod.annotation.ClientCacheEntryRemoved;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.filter.Filters;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
-import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.commons.util.ReflectionUtil;
-import org.infinispan.protostream.ProtobufUtil;
-import org.infinispan.protostream.SerializationContext;
 import org.infinispan.query.dsl.Query;
-import org.infinispan.query.remote.client.ContinuousQueryResult;
-
-import java.io.IOException;
-
-import static org.infinispan.client.hotrod.filter.Filters.*;
 
 public class ClientEvents {
 
    private static final Log log = LogFactory.getLog(ClientEvents.class, Log.class);
-
-   /**
-    * The name of the factory used for query DSL based filters and converters. This factory is provided internally by
-    * the server.
-    * @deprecated Use constants from {@link Filters}
-    */
-   @Deprecated
-   public static final String QUERY_DSL_FILTER_FACTORY_NAME = Filters.QUERY_DSL_FILTER_FACTORY_NAME;
-
-   @Deprecated
-   public static final String CONTINUOUS_QUERY_FILTER_FACTORY_NAME = Filters.CONTINUOUS_QUERY_FILTER_FACTORY_NAME;
 
    private static final ClientCacheFailoverEvent FAILOVER_EVENT_SINGLETON = new ClientCacheFailoverEvent() {
       @Override
@@ -77,51 +56,5 @@ public class ClientEvents {
       }
       Object[] factoryParams = makeFactoryParams(query);
       remoteCache.addClientListener(listener, factoryParams, null);
-   }
-
-   /**
-    * Register a continuous query listener that uses a query DSL based filter. The listener will receive notifications
-    * when a cache entry joins or leaves the matching set.
-    *
-    * @param remoteCache   the remote cache to attach the listener
-    * @param queryListener the listener instance
-    * @param query         the query to be used for determining the matching set
-    */
-   public static Object addContinuousQueryListener(RemoteCache<?, ?> remoteCache, ContinuousQueryListener queryListener, Query query) {
-      SerializationContext serCtx = ProtoStreamMarshaller.getSerializationContext(remoteCache.getRemoteCacheManager());
-      ClientEntryListener eventListener = new ClientEntryListener(serCtx, queryListener);
-      Object[] factoryParams = makeFactoryParams(query);
-      remoteCache.addClientListener(eventListener, factoryParams, null);
-      return eventListener;
-   }
-
-   @ClientListener(filterFactoryName = Filters.CONTINUOUS_QUERY_FILTER_FACTORY_NAME,
-         converterFactoryName = Filters.CONTINUOUS_QUERY_FILTER_FACTORY_NAME,
-         useRawData = true, includeCurrentState = true)
-   private static final class ClientEntryListener {
-
-      private final SerializationContext serializationContext;
-
-      private final ContinuousQueryListener queryListener;
-
-      public ClientEntryListener(SerializationContext serializationContext, ContinuousQueryListener queryListener) {
-         this.serializationContext = serializationContext;
-         this.queryListener = queryListener;
-      }
-
-      @ClientCacheEntryCreated
-      @ClientCacheEntryModified
-      @ClientCacheEntryRemoved
-      @ClientCacheEntryExpired
-      public void handleClientCacheEntryCreatedEvent(ClientCacheEntryCustomEvent<byte[]> event) throws IOException {
-         ContinuousQueryResult cqr = ProtobufUtil.fromByteArray(serializationContext, event.getEventData(), ContinuousQueryResult.class);
-         Object key = ProtobufUtil.fromWrappedByteArray(serializationContext, cqr.getKey());
-         Object value = cqr.getValue() != null ? ProtobufUtil.fromWrappedByteArray(serializationContext, cqr.getValue()) : cqr.getProjection();
-         if (cqr.isJoining()) {
-            queryListener.resultJoining(key, value);
-         } else {
-            queryListener.resultLeaving(key);
-         }
-      }
    }
 }

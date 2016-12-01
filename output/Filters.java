@@ -1,9 +1,9 @@
 package org.infinispan.client.hotrod.filter;
 
+import java.util.Map;
+
 import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.impl.BaseQuery;
-
-import java.util.Map;
 
 /**
  * @author gustavonalle
@@ -21,14 +21,15 @@ public final class Filters {
 
    public static final String CONTINUOUS_QUERY_FILTER_FACTORY_NAME = "continuous-query-filter-converter-factory";
 
-   public static Object[] makeFactoryParams(Query query) {
-      BaseQuery baseQuery = (BaseQuery) query;
-      Map<String, Object> namedParameters = baseQuery.getNamedParameters();
+   private Filters() {
+   }
+
+   public static Object[] makeFactoryParams(String queryString, Map<String, Object> namedParameters) {
       if (namedParameters == null) {
-         return new Object[]{baseQuery.getJPAQuery()};
+         return new Object[]{queryString};
       }
       Object[] factoryParams = new Object[1 + namedParameters.size() * 2];
-      factoryParams[0] = baseQuery.getJPAQuery();
+      factoryParams[0] = queryString;
       int i = 1;
       for (Map.Entry<String, Object> e : namedParameters.entrySet()) {
          factoryParams[i++] = e.getKey();
@@ -37,4 +38,8 @@ public final class Filters {
       return factoryParams;
    }
 
+   public static Object[] makeFactoryParams(Query query) {
+      BaseQuery baseQuery = (BaseQuery) query;
+      return makeFactoryParams(baseQuery.getQueryString(), baseQuery.getNamedParameters());
+   }
 }

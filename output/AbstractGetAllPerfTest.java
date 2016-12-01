@@ -3,8 +3,8 @@ package org.infinispan.client.hotrod.stress;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.testng.AssertJUnit.assertTrue;
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertTrue;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -55,8 +55,10 @@ public abstract class AbstractGetAllPerfTest extends MultipleCacheManagersTest {
       }
 
       String servers = HotRodClientTestingUtil.getServersString(hotrodServers);
-
-      remoteCacheManager = new RemoteCacheManager(servers);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServers(servers);
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
       remoteCache = remoteCacheManager.getCache();
    }
 

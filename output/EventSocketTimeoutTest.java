@@ -1,26 +1,24 @@
 package org.infinispan.client.hotrod.event;
 
-import org.infinispan.client.hotrod.RemoteCache;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withClientListener;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.testng.AssertJUnit.assertTrue;
+
+import java.net.SocketTimeoutException;
+
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.SocketTimeoutErrorTest.TimeoutInducingInterceptor;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
-import org.infinispan.client.hotrod.test.RemoteCacheManagerCallable;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.interceptors.EntryWrappingInterceptor;
+import org.infinispan.interceptors.impl.EntryWrappingInterceptor;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import java.net.SocketTimeoutException;
-
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withClientListener;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.testng.AssertJUnit.assertTrue;
 
 @Test(groups = "functional", testName = "client.hotrod.event.EventSocketTimeoutTest")
 public class EventSocketTimeoutTest extends SingleHotRodServerTest {
@@ -51,23 +49,19 @@ public class EventSocketTimeoutTest extends SingleHotRodServerTest {
    }
 
    public void testSocketTimeoutWithEvent() {
-      final EventLogListener<String> eventListener = new EventLogListener<>();
-      withClientListener(eventListener, new RemoteCacheManagerCallable(remoteCacheManager) {
-         @Override
-         public void call() {
-            RemoteCache<String, Integer> cache = rcm.getCache();
-            eventListener.expectNoEvents();
-            cache.put("uno", 1);
-            eventListener.expectOnlyCreatedEvent("uno", cache());
-            try {
-               cache.put("FailFailFail", 99);
-               Assert.fail("SocketTimeoutException expected");
-            } catch (HotRodClientException e) {
-               assertTrue(e.getCause() instanceof SocketTimeoutException); // ignore
-            }
-            cache.put("dos", 2);
-            eventListener.expectOnlyCreatedEvent("dos", cache());
+      final EventLogListener<String> l = new EventLogListener<>(remoteCacheManager.getCache());
+      withClientListener(l, remote -> {
+         l.expectNoEvents();
+         remote.put("uno", 1);
+         l.expectOnlyCreatedEvent("uno");
+         try {
+            remote.put("FailFailFail", 99);
+            Assert.fail("SocketTimeoutException expected");
+         } catch (HotRodClientException e) {
+            assertTrue(e.getCause() instanceof SocketTimeoutException); // ignore
          }
+         remote.put("dos", 2);
+         l.expectOnlyCreatedEvent("dos");
       });
    }
 

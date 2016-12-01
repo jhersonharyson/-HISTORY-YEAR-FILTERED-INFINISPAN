@@ -1,15 +1,15 @@
 package org.infinispan.client.hotrod;
 
-import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
-import org.infinispan.configuration.cache.CacheMode;
-import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.server.hotrod.test.HotRodTestingUtil;
-
 import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
+import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.server.hotrod.test.HotRodTestingUtil;
 
 /**
  * @author gustavonalle
@@ -46,7 +46,7 @@ public abstract class BaseSegmentOwnershipTest extends MultiHotRodServersTest {
 
    @Override
    protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(int serverPort) {
-      return super.createHotRodClientConfigurationBuilder(serverPort).pingOnStartup(true);
+      return super.createHotRodClientConfigurationBuilder(serverPort);
    }
 
 }

@@ -10,16 +10,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.impl.TypedProperties;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
-import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV1;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
-import org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
@@ -46,20 +45,20 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    private WeakReference<ClassLoader> classLoader;
    private final ExecutorFactoryConfigurationBuilder asyncExecutorFactory;
-   private Class<? extends RequestBalancingStrategy> balancingStrategyClass = RoundRobinBalancingStrategy.class;
+   private Class<? extends FailoverRequestBalancingStrategy> balancingStrategyClass = RoundRobinBalancingStrategy.class;
    private FailoverRequestBalancingStrategy balancingStrategy;
+   private ClientIntelligence clientIntelligence = ClientIntelligence.getDefault();
    private final ConnectionPoolConfigurationBuilder connectionPool;
    private int connectionTimeout = ConfigurationProperties.DEFAULT_CONNECT_TIMEOUT;
    @SuppressWarnings("unchecked")
    private final Class<? extends ConsistentHash> consistentHashImpl[] = new Class[] {
-         ConsistentHashV1.class, ConsistentHashV2.class, SegmentConsistentHash.class
+         null, ConsistentHashV2.class, SegmentConsistentHash.class
    };
    private boolean forceReturnValues;
    private int keySizeEstimate = ConfigurationProperties.DEFAULT_KEY_SIZE;
-   private Class<? extends Marshaller> marshallerClass = GenericJBossMarshaller.class;
+   private Class<? extends Marshaller> marshallerClass;
    private Marshaller marshaller;
-   private boolean pingOnStartup = true;
-   private String protocolVersion = ConfigurationProperties.DEFAULT_PROTOCOL_VERSION;
+   private ProtocolVersion protocolVersion = ProtocolVersion.DEFAULT_PROTOCOL_VERSION;
    private final List<ServerConfigurationBuilder> servers = new ArrayList<ServerConfigurationBuilder>();
    private int socketTimeout = ConfigurationProperties.DEFAULT_SO_TIMEOUT;
    private final SecurityConfigurationBuilder security;
@@ -73,7 +72,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    private final List<ClusterConfigurationBuilder> clusters = new ArrayList<ClusterConfigurationBuilder>();
 
    public ConfigurationBuilder() {
-      this.classLoader = new WeakReference<ClassLoader>(Thread.currentThread().getContextClassLoader());
+      this.classLoader = new WeakReference<>(Thread.currentThread().getContextClassLoader());
       this.connectionPool = new ConnectionPoolConfigurationBuilder(this);
       this.asyncExecutorFactory = new ExecutorFactoryConfigurationBuilder(this);
       this.security = new SecurityConfigurationBuilder(this);
@@ -97,7 +96,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    @Override
    public ConfigurationBuilder addServers(String servers) {
       for (String server : servers.split(";")) {
-         Matcher matcher = ADDRESS_PATTERN.matcher(server);
+         Matcher matcher = ADDRESS_PATTERN.matcher(server.trim());
          if (matcher.matches()) {
             String v6host = matcher.group(2);
             String v4host = matcher.group(3);
@@ -133,19 +132,25 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    @Override
-   public ConfigurationBuilder balancingStrategy(Class<? extends RequestBalancingStrategy> balancingStrategy) {
+   public ConfigurationBuilder balancingStrategy(Class<? extends FailoverRequestBalancingStrategy> balancingStrategy) {
       this.balancingStrategyClass = balancingStrategy;
       return this;
    }
 
    @Override
    public ConfigurationBuilder classLoader(ClassLoader cl) {
-      this.classLoader = new WeakReference<ClassLoader>(cl);
+      this.classLoader = new WeakReference<>(cl);
       return this;
    }
 
    ClassLoader classLoader() {
       return classLoader != null ? classLoader.get() : null;
+   }
+
+   @Override
+   public ConfigurationBuilder clientIntelligence(ClientIntelligence clientIntelligence) {
+      this.clientIntelligence = clientIntelligence;
+      return this;
    }
 
    @Override
@@ -161,13 +166,21 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public ConfigurationBuilder consistentHashImpl(int version, Class<? extends ConsistentHash> consistentHashClass) {
-      this.consistentHashImpl[version - 1] = consistentHashClass;
+      if (version == 1) {
+         log.warn("Hash function version 1 is no longer supported.");
+      } else {
+         this.consistentHashImpl[version - 1] = consistentHashClass;
+      }
       return this;
    }
 
    @Override
    public ConfigurationBuilder consistentHashImpl(int version, String consistentHashClass) {
-      this.consistentHashImpl[version - 1] = Util.loadClass(consistentHashClass, classLoader());
+      if (version == 1) {
+         log.warn("Hash function version 1 is no longer supported.");
+      } else {
+         this.consistentHashImpl[version - 1] = Util.loadClass(consistentHashClass, classLoader());
+      }
       return this;
    }
 
@@ -206,16 +219,17 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    /**
-    * @deprecated No longer in effect, ping always happens on startup now.
+    * @deprecated Use {@link ConfigurationBuilder#version(ProtocolVersion)} instead.
     */
    @Deprecated
    @Override
-   public ConfigurationBuilder pingOnStartup(boolean pingOnStartup) {
+   public ConfigurationBuilder protocolVersion(String protocolVersion) {
+      this.protocolVersion = ProtocolVersion.parseVersion(protocolVersion);
       return this;
    }
 
    @Override
-   public ConfigurationBuilder protocolVersion(String protocolVersion) {
+   public ConfigurationBuilder version(ProtocolVersion protocolVersion) {
       this.protocolVersion = protocolVersion;
       return this;
    }
@@ -229,14 +243,6 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    public ConfigurationBuilder socketTimeout(int socketTimeout) {
       this.socketTimeout = socketTimeout;
       return this;
-   }
-
-   /**
-    * @deprecated Use security().ssl() instead
-    */
-   @Deprecated
-   public SslConfigurationBuilder ssl() {
-      return security.ssl();
    }
 
    @Override
@@ -284,17 +290,26 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       }
       this.asyncExecutorFactory().withExecutorProperties(typed);
       this.balancingStrategy(typed.getProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyClass.getName()));
+      this.clientIntelligence(typed.getEnumProperty(ConfigurationProperties.CLIENT_INTELLIGENCE, ClientIntelligence.class, ClientIntelligence.getDefault()));
       this.connectionPool.withPoolProperties(typed);
       this.connectionTimeout(typed.getIntProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectionTimeout));
-      for (int i = 1; i <= consistentHashImpl.length; i++) {
-         this.consistentHashImpl(i, typed.getProperty(ConfigurationProperties.HASH_FUNCTION_PREFIX + "." + i, consistentHashImpl[i - 1].getName()));
+      if (typed.containsKey(ConfigurationProperties.HASH_FUNCTION_PREFIX + ".1")) {
+         log.warn("Hash function version 1 is no longer supported");
+      }
+      for (int i = 0; i < consistentHashImpl.length; i++) {
+         if (consistentHashImpl[i] != null) {
+            int version = i + 1;
+            this.consistentHashImpl(version,
+                  typed.getProperty(ConfigurationProperties.HASH_FUNCTION_PREFIX + "." + version,
+                        consistentHashImpl[i].getName()));
+         }
       }
       this.forceReturnValues(typed.getBooleanProperty(ConfigurationProperties.FORCE_RETURN_VALUES, forceReturnValues));
       this.keySizeEstimate(typed.getIntProperty(ConfigurationProperties.KEY_SIZE_ESTIMATE, keySizeEstimate));
       if (typed.containsKey(ConfigurationProperties.MARSHALLER)) {
          this.marshaller(typed.getProperty(ConfigurationProperties.MARSHALLER));
       }
-      this.protocolVersion(typed.getProperty(ConfigurationProperties.PROTOCOL_VERSION, protocolVersion));
+      this.protocolVersion(typed.getProperty(ConfigurationProperties.PROTOCOL_VERSION, protocolVersion.toString()));
       this.servers.clear();
       this.addServers(typed.getProperty(ConfigurationProperties.SERVER_LIST, ""));
       this.socketTimeout(typed.getIntProperty(ConfigurationProperties.SO_TIMEOUT, socketTimeout));
@@ -305,6 +320,8 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       }
       this.valueSizeEstimate(typed.getIntProperty(ConfigurationProperties.VALUE_SIZE_ESTIMATE, valueSizeEstimate));
       this.maxRetries(typed.getIntProperty(ConfigurationProperties.MAX_RETRIES, maxRetries));
+      this.security.ssl().withProperties(properties);
+      this.security.authentication().withProperties(properties);
       return this;
    }
 
@@ -339,15 +356,13 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
       List<ClusterConfiguration> serverClusterConfigs = clusters.stream()
          .map(ClusterConfigurationBuilder::create).collect(Collectors.toList());
-      if (marshaller == null) {
-         return new Configuration(asyncExecutorFactory.create(), balancingStrategyClass, balancingStrategy, classLoader == null ? null : classLoader.get(), connectionPool.create(), connectionTimeout,
-               consistentHashImpl, forceReturnValues, keySizeEstimate, marshallerClass, pingOnStartup, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive, transportFactory,
-               valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs);
-      } else {
-         return new Configuration(asyncExecutorFactory.create(), balancingStrategyClass, balancingStrategy, classLoader == null ? null : classLoader.get(), connectionPool.create(), connectionTimeout,
-               consistentHashImpl, forceReturnValues, keySizeEstimate, marshaller, pingOnStartup, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive, transportFactory,
-               valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs);
+      if (marshaller == null && marshallerClass == null) {
+         marshallerClass = GenericJBossMarshaller.class;
       }
+
+      return new Configuration(asyncExecutorFactory.create(), balancingStrategyClass, balancingStrategy, classLoader == null ? null : classLoader.get(), clientIntelligence, connectionPool.create(), connectionTimeout,
+            consistentHashImpl, forceReturnValues, keySizeEstimate, marshaller, marshallerClass, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive, transportFactory,
+            valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs);
    }
 
    @Override
@@ -371,13 +386,13 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.connectionPool.read(template.connectionPool());
       this.connectionTimeout = template.connectionTimeout();
       for (int i = 0; i < consistentHashImpl.length; i++) {
-         this.consistentHashImpl[i] = template.consistentHashImpl()[i];
+         this.consistentHashImpl[i] = template.consistentHashImpl(i + 1);
       }
       this.forceReturnValues = template.forceReturnValues();
       this.keySizeEstimate = template.keySizeEstimate();
       this.marshaller = template.marshaller();
       this.marshallerClass = template.marshallerClass();
-      this.protocolVersion = template.protocolVersion();
+      this.protocolVersion = template.version();
       this.servers.clear();
       for (ServerConfiguration server : template.servers()) {
          this.addServer().host(server.host()).port(server.port());

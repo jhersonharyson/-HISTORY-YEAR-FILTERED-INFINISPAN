@@ -1,13 +1,19 @@
 package org.infinispan.client.hotrod.impl.iteration;
 
+import static org.testng.Assert.assertTrue;
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertFalse;
+
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
@@ -18,13 +24,9 @@ import org.infinispan.filter.AbstractKeyValueFilterConverter;
 import org.infinispan.filter.KeyValueFilterConverter;
 import org.infinispan.filter.KeyValueFilterConverterFactory;
 import org.infinispan.filter.ParamKeyValueFilterConverterFactory;
+import org.infinispan.marshall.core.ExternalPojo;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.query.dsl.embedded.testdomain.hsearch.AccountHS;
-
-import static org.infinispan.client.hotrod.impl.iteration.BaseMultiServerRemoteIteratorTest.SubstringFilterFactory.DEFAULT_LENGTH;
-import static org.testng.Assert.assertTrue;
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertFalse;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -105,7 +107,7 @@ public abstract class BaseMultiServerRemoteIteratorTest extends MultiHotRodServe
       // Omitting param, filter should use default value
       entries = extractEntries(stringCache.retrieveEntries(factoryName, 10));
       values = extractValues(entries);
-      assertForAll(values, s -> s.length() == DEFAULT_LENGTH);
+      assertForAll(values, s -> s.length() == SubstringFilterFactory.DEFAULT_LENGTH);
    }
 
 
@@ -132,13 +134,37 @@ public abstract class BaseMultiServerRemoteIteratorTest extends MultiHotRodServe
       assertKeysInSegment(entries, filterBySegments, marshaller, consistentHash::getSegment);
    }
 
+   @Test
+   public void testRetrieveMetadata() throws Exception {
+      RemoteCache<Integer, AccountHS> cache = clients.get(0).getCache();
+      cache.put(1, newAccount(1), 1, TimeUnit.DAYS);
+      cache.put(2, newAccount(2), 2, TimeUnit.MINUTES, 30, TimeUnit.SECONDS);
+      cache.put(3, newAccount(3));
+
+      try (CloseableIterator<Entry<Object, MetadataValue<Object>>> iterator = cache.retrieveEntriesWithMetadata(null, 10)) {
+         Entry<Object, MetadataValue<Object>> entry = iterator.next();
+         if ((int) entry.getKey() == 1) {
+            assertEquals(24 * 3600, entry.getValue().getLifespan());
+            assertEquals(-1, entry.getValue().getMaxIdle());
+         }
+         if ((int) entry.getKey() == 2) {
+            assertEquals(2 * 60, entry.getValue().getLifespan());
+            assertEquals(30, entry.getValue().getMaxIdle());
+         }
+         if ((int) entry.getKey() == 3) {
+            assertEquals(-1, entry.getValue().getLifespan());
+            assertEquals(-1, entry.getValue().getMaxIdle());
+         }
+      }
+   }
+
    static final class ToHexConverterFactory implements KeyValueFilterConverterFactory<Integer, Integer, String> {
       @Override
       public KeyValueFilterConverter<Integer, Integer, String> getFilterConverter() {
          return new HexFilterConverter();
       }
 
-      static class HexFilterConverter extends AbstractKeyValueFilterConverter<Integer, Integer, String> implements Serializable {
+      static class HexFilterConverter extends AbstractKeyValueFilterConverter<Integer, Integer, String> implements Serializable, ExternalPojo {
          @Override
          public String filterAndConvert(Integer key, Integer value, Metadata metadata) {
             return Integer.toHexString(value);
@@ -157,7 +183,7 @@ public abstract class BaseMultiServerRemoteIteratorTest extends MultiHotRodServe
       }
 
 
-      static class SubstringFilterConverter extends AbstractKeyValueFilterConverter<String, String, String> implements Serializable {
+      static class SubstringFilterConverter extends AbstractKeyValueFilterConverter<String, String, String> implements Serializable, ExternalPojo {
          private final int length;
 
          public SubstringFilterConverter(Object[] params) {

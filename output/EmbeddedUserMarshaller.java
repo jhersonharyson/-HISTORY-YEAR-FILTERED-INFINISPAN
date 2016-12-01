@@ -1,16 +1,16 @@
 package org.infinispan.client.hotrod.marshall;
 
-import org.infinispan.protostream.MessageMarshaller;
-import org.infinispan.query.dsl.embedded.testdomain.Address;
-import org.infinispan.query.dsl.embedded.testdomain.User;
-import org.infinispan.query.dsl.embedded.testdomain.hsearch.AddressHS;
-import org.infinispan.query.dsl.embedded.testdomain.hsearch.UserHS;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import org.infinispan.protostream.MessageMarshaller;
+import org.infinispan.query.dsl.embedded.testdomain.Address;
+import org.infinispan.query.dsl.embedded.testdomain.User;
+import org.infinispan.query.dsl.embedded.testdomain.hsearch.AddressHS;
+import org.infinispan.query.dsl.embedded.testdomain.hsearch.UserHS;
 
 /**
  * @author anistor@redhat.com
@@ -31,13 +31,13 @@ public class EmbeddedUserMarshaller implements MessageMarshaller<UserHS> {
    @Override
    public UserHS readFrom(ProtoStreamReader reader) throws IOException {
       int id = reader.readInt("id");
-      Set<Integer> accountIds = reader.readCollection("accountIds", new HashSet<Integer>(), Integer.class);
+      Set<Integer> accountIds = reader.readCollection("accountIds", new HashSet<>(), Integer.class);
 
       // Read them out of order. It still works but logs a warning!
       String surname = reader.readString("surname");
       String name = reader.readString("name");
 
-      List<Address> addresses = reader.readCollection("addresses", new ArrayList<Address>(), AddressHS.class);
+      List<Address> addresses = reader.readCollection("addresses", new ArrayList<>(), AddressHS.class);
 
       Integer age = reader.readInt("age");
       User.Gender gender = reader.readObject("gender", User.Gender.class);

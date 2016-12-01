@@ -1,5 +1,10 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.testng.AssertJUnit.assertEquals;
+
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -7,11 +12,6 @@ import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
-
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.testng.AssertJUnit.assertEquals;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -44,7 +44,10 @@ public class HotRodServerStartStopTest extends MultipleCacheManagersTest {
    }
 
    public void testTouchServer() {
-      RemoteCacheManager remoteCacheManager = new RemoteCacheManager("localhost", hotRodServer1.getPort(), true);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServer().host("localhost").port(hotRodServer1.getPort());
+      RemoteCacheManager remoteCacheManager = new RemoteCacheManager(clientBuilder.build(), true);
       RemoteCache<Object, Object> remoteCache = remoteCacheManager.getCache();
       remoteCache.put("k", "v");
       assertEquals("v", remoteCache.get("k"));

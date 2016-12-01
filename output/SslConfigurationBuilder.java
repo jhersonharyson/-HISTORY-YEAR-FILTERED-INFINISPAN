@@ -1,12 +1,17 @@
 package org.infinispan.client.hotrod.configuration;
 
+import java.util.List;
+import java.util.Properties;
+
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 
+import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.impl.TypedProperties;
+import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.configuration.Builder;
-import org.infinispan.client.hotrod.logging.Log;
 
 /**
  *
@@ -20,9 +25,12 @@ public class SslConfigurationBuilder extends AbstractSecurityConfigurationChildB
    private boolean enabled = false;
    private String keyStoreFileName;
    private char[] keyStorePassword;
+   private char[] keyStoreCertificatePassword;
    private String trustStoreFileName;
    private char[] trustStorePassword;
    private SSLContext sslContext;
+   private String sniHostName;
+   private String protocol;
 
    protected SslConfigurationBuilder(SecurityConfigurationBuilder builder) {
       super(builder);
@@ -72,6 +80,16 @@ public class SslConfigurationBuilder extends AbstractSecurityConfigurationChildB
       return this;
    }
 
+   /**
+    * Specifies the password needed to access private key associated with certificate stored in specified
+    * {@link #keyStoreFileName(String)}. If password is not specified, password provided in
+    * {@link #keyStorePassword(String)} will be used.
+    */
+   public SslConfigurationBuilder keyStoreCertificatePassword(char[] keyStoreCertificatePassword) {
+      this.keyStoreCertificatePassword = keyStoreCertificatePassword;
+      return this;
+   }
+
    public SslConfigurationBuilder sslContext(SSLContext sslContext) {
       this.sslContext = sslContext;
       return this;
@@ -97,13 +115,30 @@ public class SslConfigurationBuilder extends AbstractSecurityConfigurationChildB
       return this;
    }
 
+   /**
+    * Specifies the TLS SNI hostname for the connection
+    * @see javax.net.ssl.SSLParameters#setServerNames(List)
+     */
+   public SslConfigurationBuilder sniHostName(String sniHostName) {
+      this.sniHostName = sniHostName;
+      return this;
+   }
+
+   /**
+    * Configures the secure socket protocol.
+    *
+    * @see javax.net.ssl.SSLContext#getInstance(String)
+    * @param protocol The standard name of the requested protocol
+    */
+   public SslConfigurationBuilder protocol(String protocol) {
+      this.protocol = protocol;
+      return this;
+   }
+
    @Override
    public void validate() {
       if (enabled) {
          if (sslContext == null) {
-            if (keyStoreFileName == null) {
-               throw log.noSSLKeyManagerConfiguration();
-            }
             if (keyStoreFileName != null && keyStorePassword == null) {
                throw log.missingKeyStorePassword(keyStoreFileName);
             }
@@ -123,7 +158,7 @@ public class SslConfigurationBuilder extends AbstractSecurityConfigurationChildB
 
    @Override
    public SslConfiguration create() {
-      return new SslConfiguration(enabled, keyStoreFileName, keyStorePassword, sslContext, trustStoreFileName, trustStorePassword);
+      return new SslConfiguration(enabled, keyStoreFileName, keyStorePassword, keyStoreCertificatePassword, sslContext, trustStoreFileName, trustStorePassword, sniHostName, protocol);
    }
 
    @Override
@@ -131,10 +166,40 @@ public class SslConfigurationBuilder extends AbstractSecurityConfigurationChildB
       this.enabled = template.enabled();
       this.keyStoreFileName = template.keyStoreFileName();
       this.keyStorePassword = template.keyStorePassword();
+      this.keyStoreCertificatePassword = template.keyStoreCertificatePassword();
       this.sslContext = template.sslContext();
       this.trustStoreFileName = template.trustStoreFileName();
       this.trustStorePassword = template.trustStorePassword();
+      this.sniHostName = template.sniHostName();
+      this.protocol = template.protocol();
       return this;
    }
 
+   @Override
+   public ConfigurationBuilder withProperties(Properties properties) {
+      TypedProperties typed = TypedProperties.toTypedProperties(properties);
+      this.enabled(typed.getBooleanProperty(ConfigurationProperties.USE_SSL, enabled));
+      this.keyStoreFileName(typed.getProperty(ConfigurationProperties.KEY_STORE_FILE_NAME, keyStoreFileName));
+
+      if (typed.containsKey(ConfigurationProperties.KEY_STORE_PASSWORD))
+         this.keyStorePassword(typed.getProperty(ConfigurationProperties.KEY_STORE_PASSWORD).toCharArray());
+
+      if (typed.containsKey(ConfigurationProperties.KEY_STORE_CERTIFICATE_PASSWORD))
+         this.keyStoreCertificatePassword(typed.getProperty(ConfigurationProperties.KEY_STORE_CERTIFICATE_PASSWORD).toCharArray());
+
+      this.trustStoreFileName(typed.getProperty(ConfigurationProperties.TRUST_STORE_FILE_NAME, trustStoreFileName));
+
+      if (typed.containsKey(ConfigurationProperties.TRUST_STORE_PASSWORD))
+         this.trustStorePassword(typed.getProperty(ConfigurationProperties.TRUST_STORE_PASSWORD).toCharArray());
+
+      if(typed.containsKey(ConfigurationProperties.SSL_PROTOCOL))
+         this.protocol(typed.getProperty(ConfigurationProperties.SSL_PROTOCOL));
+
+      if (typed.containsKey(ConfigurationProperties.SNI_HOST_NAME))
+         this.sniHostName(typed.getProperty(ConfigurationProperties.SNI_HOST_NAME));
+
+      this.sslContext((SSLContext) typed.get(ConfigurationProperties.SSL_CONTEXT));
+
+      return builder.getBuilder();
+   }
 }

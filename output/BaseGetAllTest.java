@@ -6,7 +6,6 @@ import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheCon
 import static org.testng.AssertJUnit.assertEquals;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -51,8 +50,10 @@ public abstract class BaseGetAllTest extends MultipleCacheManagersTest {
       }
 
       String servers = HotRodClientTestingUtil.getServersString(hotrodServers);
-
-      remoteCacheManager = new RemoteCacheManager(servers);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServers(servers);
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
       remoteCache = remoteCacheManager.getCache();
    }
 
@@ -70,7 +71,7 @@ public abstract class BaseGetAllTest extends MultipleCacheManagersTest {
       remoteCache.putAll(entries);
       return entries.keySet();
    }
-   
+
    public void testBulkGetKeys() {
       Set<Integer> keys = populateCacheManager();
       Map<Object, Object> map = remoteCache.getAll(keys);

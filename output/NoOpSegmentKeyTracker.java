@@ -6,10 +6,10 @@ import java.util.Set;
  * @author gustavonalle
  * @since 8.0
  */
-public class NoOpSegmentKeyTracker implements KeyTracker {
+class NoOpSegmentKeyTracker implements KeyTracker {
 
    @Override
-   public boolean track(byte[] key) {
+   public boolean track(byte[] key, short status) {
       return true;
    }
 

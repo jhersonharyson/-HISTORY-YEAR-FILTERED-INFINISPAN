@@ -2,13 +2,14 @@ package org.infinispan.client.hotrod.configuration;
 
 import java.util.Properties;
 
+import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
-import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV1;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
-import org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy;
 import org.infinispan.commons.marshall.Marshaller;
+
+import javax.net.ssl.SSLContext;
 
 /**
  * ConfigurationChildBuilder.
@@ -55,13 +56,22 @@ public interface ConfigurationChildBuilder {
     * For replicated (vs distributed) Hot Rod server clusters, the client balances requests to the
     * servers according to this strategy.
     */
-   ConfigurationBuilder balancingStrategy(Class<? extends RequestBalancingStrategy> balancingStrategy);
+   ConfigurationBuilder balancingStrategy(Class<? extends FailoverRequestBalancingStrategy> balancingStrategy);
 
    /**
-    * @param classLoader
-    * @return
+    * Specifies the {@link ClassLoader} used to find certain resources used by configuration when specified by name
+    * (e.g. certificate stores). Infinispan will search through the classloader which loaded this class, the system
+    * classloader, the TCCL and the OSGi classloader (if applicable).
+    * @deprecated since 9.0.  If you need to load configuration resources from other locations, you will need to do so
+    * yourself and use the appropriate configuration methods (e.g. {@link SslConfigurationBuilder#sslContext(SSLContext)})
     */
+   @Deprecated
    ConfigurationBuilder classLoader(ClassLoader classLoader);
+
+   /**
+    * Specifies the level of "intelligence" the client should have
+    */
+   ConfigurationBuilder clientIntelligence(ClientIntelligence clientIntelligence);
 
    /**
     * Configures the connection pool
@@ -76,13 +86,13 @@ public interface ConfigurationChildBuilder {
 
    /**
     * Defines the {@link ConsistentHash} implementation to use for the specified version. By default,
-    * {@link ConsistentHashV1} is used for version 1 and {@link ConsistentHashV2} is used for version 2.
+    * {@link ConsistentHashV2} is used for version 1 and {@link ConsistentHashV2} is used for version 2.
     */
    ConfigurationBuilder consistentHashImpl(int version, Class<? extends ConsistentHash> consistentHashClass);
 
    /**
     * Defines the {@link ConsistentHash} implementation to use for the specified version. By default,
-    * {@link ConsistentHashV1} is used for version 1 and {@link ConsistentHashV2} is used for version 2.
+    * {@link ConsistentHashV2} is used for version 1 and {@link ConsistentHashV2} is used for version 2.
     */
    ConfigurationBuilder consistentHashImpl(int version, String consistentHashClass);
 
@@ -97,33 +107,37 @@ public interface ConfigurationChildBuilder {
    ConfigurationBuilder keySizeEstimate(int keySizeEstimate);
 
    /**
-    * Allows you to specify a custom {@link org.infinispan.marshall.Marshaller} implementation to
+    * Allows you to specify a custom {@link Marshaller} implementation to
     * serialize and deserialize user objects. This method is mutually exclusive with {@link #marshaller(Marshaller)}.
     */
    ConfigurationBuilder marshaller(String marshaller);
 
    /**
-    * Allows you to specify a custom {@link org.infinispan.marshall.Marshaller} implementation to
+    * Allows you to specify a custom {@link Marshaller} implementation to
     * serialize and deserialize user objects. This method is mutually exclusive with {@link #marshaller(Marshaller)}.
     */
    ConfigurationBuilder marshaller(Class<? extends Marshaller> marshaller);
 
    /**
-    * Allows you to specify an instance of {@link org.infinispan.marshall.Marshaller} to serialize
+    * Allows you to specify an instance of {@link Marshaller} to serialize
     * and deserialize user objects. This method is mutually exclusive with {@link #marshaller(Class)}.
     */
    ConfigurationBuilder marshaller(Marshaller marshaller);
 
    /**
-    * If true, a ping request is sent to a back end server in order to fetch cluster's topology.
+    * This property defines the protocol version that this client should use. Defaults to the latest protocol version
+    * supported by this client.
+    *
+    * @deprecated Use {@link ConfigurationChildBuilder#version(ProtocolVersion)} instead.
     */
-   ConfigurationBuilder pingOnStartup(boolean pingOnStartup);
+   @Deprecated
+   ConfigurationBuilder protocolVersion(String protocolVersion);
 
    /**
-    * This property defines the protocol version that this client should use. Defaults to 1.1. Other
-    * valid values include 1.0.
+    * This property defines the protocol version that this client should use. Defaults to the latest protocol version
+    * supported by this client.
     */
-   ConfigurationBuilder protocolVersion(String protocolVersion);
+   ConfigurationBuilder version(ProtocolVersion protocolVersion);
 
    /**
     * This property defines the maximum socket read timeout in milliseconds before giving up waiting

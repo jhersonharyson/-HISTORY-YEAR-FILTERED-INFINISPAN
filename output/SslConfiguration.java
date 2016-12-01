@@ -2,9 +2,7 @@ package org.infinispan.client.hotrod.configuration;
 
 import java.util.Arrays;
 
-import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
 
 /**
  * SslConfiguration.
@@ -16,18 +14,24 @@ public class SslConfiguration {
    private final boolean enabled;
    private final String keyStoreFileName;
    private final char[] keyStorePassword;
+   private final char[] keyStoreCertificatePassword;
    private final SSLContext sslContext;
    private final String trustStoreFileName;
    private final char[] trustStorePassword;
+   private String sniHostName;
+   private String protocol;
 
-   SslConfiguration(boolean enabled, String keyStoreFileName, char[] keyStorePassword, SSLContext sslContext, String trustStoreFileName,
-         char[] trustStorePassword) {
+   SslConfiguration(boolean enabled, String keyStoreFileName, char[] keyStorePassword, char[] keyStoreCertificatePassword, SSLContext sslContext, String trustStoreFileName,
+                    char[] trustStorePassword, String sniHostName, String protocol) {
       this.enabled = enabled;
       this.keyStoreFileName = keyStoreFileName;
       this.keyStorePassword = keyStorePassword;
+      this.keyStoreCertificatePassword = keyStoreCertificatePassword;
       this.sslContext = sslContext;
       this.trustStoreFileName = trustStoreFileName;
       this.trustStorePassword = trustStorePassword;
+      this.sniHostName = sniHostName;
+      this.protocol = protocol;
    }
 
    public boolean enabled() {
@@ -40,6 +44,10 @@ public class SslConfiguration {
 
    public char[] keyStorePassword() {
       return keyStorePassword;
+   }
+
+   public char[] keyStoreCertificatePassword() {
+      return keyStoreCertificatePassword;
    }
 
    public SSLContext sslContext() {
@@ -56,7 +64,21 @@ public class SslConfiguration {
 
    @Override
    public String toString() {
-      return "SslConfiguration [enabled=" + enabled + ", keyStoreFileName="
-            + keyStoreFileName + ", sslContext=" + sslContext + ", trustStoreFileName=" + trustStoreFileName + "]";
+      return "SslConfiguration [" +
+              "keyStoreFileName='" + keyStoreFileName + '\'' +
+              ", enabled=" + enabled +
+              ", keyStoreCertificatePassword=" + Arrays.toString(keyStoreCertificatePassword) +
+              ", sslContext=" + sslContext +
+              ", trustStoreFileName='" + trustStoreFileName + '\'' +
+              ", sniHostName=" + sniHostName +
+              ']';
+   }
+
+   public String sniHostName() {
+      return sniHostName;
+   }
+
+   public String protocol() {
+      return protocol;
    }
 }

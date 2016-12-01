@@ -1,12 +1,21 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+
+import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.infinispan.AdvancedCache;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commands.write.PutKeyValueCommand;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.context.InvocationContext;
-import org.infinispan.interceptors.CallInterceptor;
 import org.infinispan.interceptors.base.BaseCustomInterceptor;
+import org.infinispan.interceptors.impl.CallInterceptor;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
@@ -15,15 +24,6 @@ import org.infinispan.test.fwk.CleanupAfterTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
-
-import java.util.concurrent.Callable;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 /**
  * Tests locks over HotRod.
@@ -60,6 +60,7 @@ public class LockingTest extends SingleCacheManagerTest {
       for (CacheName cacheName : CacheName.values()) {
          cacheName.configure(builder);
          cacheManager.defineConfiguration(cacheName.name(), builder.build());
+         cacheManager.getCache(cacheName.name());
       }
       return cacheManager;
    }
@@ -68,7 +69,10 @@ public class LockingTest extends SingleCacheManagerTest {
    protected void setup() throws Exception {
       super.setup();
       hotrodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
-      remoteCacheManager = new RemoteCacheManager("localhost", hotrodServer.getPort());
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServer().host("localhost").port(hotrodServer.getPort());
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
    }
 
    private void doLockTest(CacheName cacheName) throws Exception {
@@ -110,7 +114,7 @@ public class LockingTest extends SingleCacheManagerTest {
    private CheckPoint injectBlockingCommandInterceptor(String cacheName) {
       AdvancedCache<?, ?> advancedCache = cache(cacheName).getAdvancedCache();
       final CheckPoint checkPoint = new CheckPoint();
-      advancedCache.addInterceptorBefore(new BaseCustomInterceptor() {
+      advancedCache.getAsyncInterceptorChain().addInterceptorBefore(new BaseCustomInterceptor() {
 
          private final AtomicBoolean first = new AtomicBoolean(false);
 
@@ -126,7 +130,7 @@ public class LockingTest extends SingleCacheManagerTest {
       return checkPoint;
    }
 
-   private static enum CacheName {
+   private enum CacheName {
       STRIPPED_LOCK {
          @Override
          void configure(ConfigurationBuilder builder) {

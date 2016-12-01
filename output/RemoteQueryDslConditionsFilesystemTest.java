@@ -1,13 +1,14 @@
 package org.infinispan.client.hotrod.query;
 
+import static org.testng.AssertJUnit.assertTrue;
+
+import java.io.File;
+
+import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.test.TestingUtil;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
-
-import java.io.File;
-
-import static org.junit.Assert.assertTrue;
 
 /**
  * Verifying the functionality of Remote Queries for filesystem directory provider.
@@ -23,7 +24,7 @@ public class RemoteQueryDslConditionsFilesystemTest extends RemoteQueryDslCondit
 
    @Override
    protected void createCacheManagers() throws Throwable {
-      TestingUtil.recursiveFileRemove(indexDirectory);
+      Util.recursiveFileRemove(indexDirectory);
       boolean created = new File(indexDirectory).mkdirs();
       assertTrue(created);
 
@@ -47,7 +48,7 @@ public class RemoteQueryDslConditionsFilesystemTest extends RemoteQueryDslCondit
          super.destroy();
       } finally {
          //delete the index otherwise it will mess up the index for next tests
-         TestingUtil.recursiveFileRemove(indexDirectory);
+         Util.recursiveFileRemove(indexDirectory);
       }
    }
 }

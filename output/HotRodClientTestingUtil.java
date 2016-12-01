@@ -1,36 +1,40 @@
 package org.infinispan.client.hotrod.test;
 
-import io.netty.channel.ChannelException;
+import static org.infinispan.distribution.DistributionTestHelper.isFirstOwner;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.BindException;
+import java.net.InetSocketAddress;
+import java.util.Collection;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
-import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
+import org.infinispan.client.hotrod.event.RemoteCacheSupplier;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.commons.api.BasicCache;
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
 import org.infinispan.commons.util.Util;
 import org.infinispan.container.versioning.NumericVersion;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.metadata.Metadata;
+import org.infinispan.scripting.ScriptingManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.infinispan.server.hotrod.test.HotRodTestingUtil;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.util.logging.LogFactory;
 
-import java.io.IOException;
-import java.net.BindException;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.util.Collection;
-import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.infinispan.distribution.DistributionTestHelper.getFirstOwner;
-import static org.infinispan.distribution.DistributionTestHelper.isFirstOwner;
+import io.netty.channel.ChannelException;
+import io.netty.channel.unix.Errors.NativeIoException;
 
 /**
  * Utility methods for the Hot Rod client
@@ -51,6 +55,16 @@ public class HotRodClientTestingUtil {
       return startHotRodServer(cacheManager, uniquePort.incrementAndGet(), builder);
    }
 
+   private static boolean isBindException(Throwable e) {
+      if (e instanceof BindException)
+         return true;
+      if (e instanceof NativeIoException) {
+         NativeIoException nativeIoException = (NativeIoException) e;
+         return nativeIoException.getMessage().contains("bind");
+      }
+      return false;
+   }
+
    public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager, int startPort, HotRodServerConfigurationBuilder builder) {
       // TODO: This is very rudimentary!! HotRodTestingUtil needs a more robust solution where ports are generated randomly and retries if already bound
       HotRodServer server = null;
@@ -62,7 +76,7 @@ public class HotRodClientTestingUtil {
          try {
             server = HotRodTestingUtil.startHotRodServer(cacheManager, port++, builder);
          } catch (ChannelException e) {
-            if (!(e.getCause() instanceof BindException)) {
+            if (!isBindException(e.getCause())) {
                throw e;
             } else {
                log.debug("Address already in use: [" + e.getMessage() + "], so let's try next port");
@@ -70,7 +84,7 @@ public class HotRodClientTestingUtil {
                lastError = e;
             }
          } catch (Throwable t) {
-            if (!(t instanceof BindException)) {
+            if (!isBindException(t)) {
                throw t;
             } else {
                log.debug("Address already in use: [" + t.getMessage() + "], so let's try next port");
@@ -155,24 +169,23 @@ public class HotRodClientTestingUtil {
       }
    }
 
-   public static <K, V> void withClientListener(Object listener, RemoteCacheManagerCallable c) {
-      RemoteCache<K, V> cache = c.rcm.getCache();
-      cache.addClientListener(listener);
+   public static <K, V> void withClientListener(
+         RemoteCacheSupplier<K> l, Consumer<RemoteCache<K, V>> cons) {
+      l.get().addClientListener(l);
       try {
-         c.call();
+         cons.accept(l.get());
       } finally {
-         cache.removeClientListener(listener);
+         l.get().removeClientListener(l);
       }
    }
 
-   public static <K, V> void withClientListener(Object listener,
-         Object[] filterFactoryParams, Object[] converterFactoryParams, RemoteCacheManagerCallable c) {
-      RemoteCache<K, V> cache = c.rcm.getCache();
-      cache.addClientListener(listener, filterFactoryParams, converterFactoryParams);
+   public static <K, V> void withClientListener(RemoteCacheSupplier<K> listener,
+         Object[] fparams, Object[] cparams, Consumer<RemoteCache<K, V>> cons) {
+      listener.get().addClientListener(listener, fparams, cparams);
       try {
-         c.call();
+         cons.accept(listener.get());
       } finally {
-         cache.removeClientListener(listener);
+         listener.get().removeClientListener(listener);
       }
    }
 
@@ -334,6 +347,48 @@ public class HotRodClientTestingUtil {
             cacheManagers.remove(server.getCacheManager());
             TestingUtil.blockUntilViewsReceived(50000, false, cacheManagers);
          }
+      }
+   }
+
+   public static void withScript(EmbeddedCacheManager cm, String scriptPath, Consumer<String> f) {
+      ScriptingManager scriptingManager = cm.getGlobalComponentRegistry().getComponent(ScriptingManager.class);
+      String scriptName = scriptPath.replaceAll("\\/", "");
+      try {
+         loadScript(scriptName, scriptingManager, scriptPath);
+         f.accept(scriptName);
+      } finally {
+         scriptingManager.removeScript(scriptName);
+      }
+   }
+
+   public static String loadScript(String scriptName, ScriptingManager scriptingManager, String fileName) {
+      try (InputStream is = HotRodClientTestingUtil.class.getResourceAsStream(fileName)) {
+         String script = TestingUtil.loadFileAsString(is);
+         scriptingManager.addScript(scriptName, script);
+         return scriptName;
+      } catch (IOException e) {
+         throw new AssertionError(e);
+      }
+   }
+
+   public static void withScript(BasicCache<String, String> scriptCache, String scriptPath, Consumer<String> f) {
+      String scriptName = scriptPath.replaceAll("\\/", "");
+      try {
+         loadScript(scriptName, scriptCache, scriptPath);
+         f.accept(scriptName);
+      } finally {
+         scriptCache.remove(scriptName);
+      }
+   }
+
+
+   public static String loadScript(String scriptName, BasicCache<String, String> scriptCache, String fileName) {
+      try (InputStream is = HotRodClientTestingUtil.class.getResourceAsStream(fileName)) {
+         String script = TestingUtil.loadFileAsString(is);
+         scriptCache.put(scriptName, script);
+         return scriptName;
+      } catch (IOException e) {
+         throw new AssertionError(e);
       }
    }
 

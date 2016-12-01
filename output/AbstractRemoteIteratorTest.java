@@ -1,10 +1,6 @@
 package org.infinispan.client.hotrod.impl.iteration;
 
-import org.infinispan.client.hotrod.RemoteCache;
-import org.infinispan.client.hotrod.query.testdomain.protobuf.AccountPB;
-import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.commons.util.CloseableIterator;
-import org.infinispan.query.dsl.embedded.testdomain.hsearch.AccountHS;
+import static org.testng.Assert.assertTrue;
 
 import java.util.Collection;
 import java.util.Date;
@@ -17,7 +13,11 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import static org.testng.Assert.assertTrue;
+import org.infinispan.client.hotrod.RemoteCache;
+import org.infinispan.client.hotrod.query.testdomain.protobuf.AccountPB;
+import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.util.CloseableIterator;
+import org.infinispan.query.dsl.embedded.testdomain.hsearch.AccountHS;
 
 /**
  * @author gfernandes
@@ -31,7 +31,7 @@ public interface AbstractRemoteIteratorTest {
    }
 
    default <T> void populateCache(int numElements, Function<Integer, T> supplier, RemoteCache<Integer, T> remoteCache) {
-      IntStream.range(0, numElements).forEach(i -> remoteCache.put(i, supplier.apply(i)));
+      IntStream.range(0, numElements).parallel().forEach(i -> remoteCache.put(i, supplier.apply(i)));
    }
 
    default <T> void assertForAll(Set<T> elements, Predicate<? super T> condition) {

@@ -1,8 +1,23 @@
 package org.infinispan.client.hotrod.logging;
 
+import static org.jboss.logging.Logger.Level.DEBUG;
+import static org.jboss.logging.Logger.Level.ERROR;
+import static org.jboss.logging.Logger.Level.INFO;
+import static org.jboss.logging.Logger.Level.TRACE;
+import static org.jboss.logging.Logger.Level.WARN;
+
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.net.SocketAddress;
+import java.util.Collection;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Set;
+
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.event.IncorrectClientListenerException;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
+import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.CacheListenerException;
@@ -11,16 +26,6 @@ import org.jboss.logging.annotations.Cause;
 import org.jboss.logging.annotations.LogMessage;
 import org.jboss.logging.annotations.Message;
 import org.jboss.logging.annotations.MessageLogger;
-
-import java.io.IOException;
-import java.lang.reflect.Method;
-import java.net.SocketAddress;
-import java.util.List;
-import java.util.Collection;
-import java.util.NoSuchElementException;
-import java.util.Set;
-
-import static org.jboss.logging.Logger.Level.*;
 
 /**
  * Log abstraction for the hot rod client. For this module, message ids
@@ -67,10 +72,6 @@ public interface Log extends BasicLogger {
    void errorClosingSocket(TcpTransport transport, IOException e);
 
    @LogMessage(level = WARN)
-   @Message(value = "Exception while shutting down the connection pool.", id = 4010)
-   void errorClosingConnectionPool(@Cause Exception e);
-
-   @LogMessage(level = WARN)
    @Message(value = "No hash function configured for version: %d", id = 4011)
    void noHasHFunctionConfigured(int hashFunctionVersion);
 
@@ -109,13 +110,6 @@ public interface Log extends BasicLogger {
    @LogMessage(level = INFO)
    @Message(value = "Infinispan version: %s", id = 4021)
    void version(String version);
-
-   @LogMessage(level = WARN)
-   @Message(value = "Unable to invalidate transport for server: %s", id = 4022)
-   void unableToInvalidateTransport(SocketAddress serverAddress);
-
-   @Message(value = "SSL Enabled but no KeyStore specified", id = 4023)
-   CacheConfigurationException noSSLKeyManagerConfiguration();
 
    @Message(value = "SSL Enabled but no TrustStore specified", id = 4024)
    CacheConfigurationException noSSLTrustManagerConfiguration();
@@ -198,10 +192,6 @@ public interface Log extends BasicLogger {
    @Message(value = "Invalid iteration id '%s'", id = 4048)
    NoSuchElementException errorRetrievingNext(String iterationId);
 
-   @LogMessage(level = WARN)
-   @Message(value = "No consistent hash is available in the client, starting iteration using the configured request balancing strategy", id = 4049)
-   void noConsistentHashAvailable();
-
    @LogMessage(level = INFO)
    @Message(value = "Switched to cluster '%s'", id = 4050)
    void switchedToCluster(String clusterName);
@@ -238,4 +228,28 @@ public interface Log extends BasicLogger {
 
    @Message(value = "Query parameter '%s' was not set", id = 4060)
    IllegalStateException queryParameterNotSet(String filterConverterFactoryName);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Ignoring error when closing iteration '%s'", id = 4061)
+   void ignoringErrorDuringIterationClose(String iterationId, @Cause Exception e);
+
+   @LogMessage(level = DEBUG)
+   @Message(value = "Started iteration '%s'", id = 4062)
+   void startedIteration(String iterationId);
+
+   @LogMessage(level = DEBUG)
+   @Message(value = "Transport '%s' obtained for iteration '%s'", id = 4063)
+   void iterationTransportObtained(Transport transport, String iterationId);
+
+   @LogMessage(level = TRACE)
+   @Message(value = "Tracking key %s belonging to segment %d, already tracked? = %b", id = 4064)
+   void trackingSegmentKey(String key, int segment, boolean isTracked);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Classpath does not look correct. Make sure you are not mixing uber and jars", id = 4065)
+   void warnAboutUberJarDuplicates();
+
+   @LogMessage(level = WARN)
+   @Message(value = "Unable to convert property [%s] to an enum! Using default value of %d", id = 4066)
+   void unableToConvertStringPropertyToEnum(String value, String defaultValue);
 }

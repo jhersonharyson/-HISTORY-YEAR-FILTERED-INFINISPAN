@@ -1,26 +1,33 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.loadScript;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withClientListener;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withScript;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.Buffer;
-import java.nio.CharBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 
+import org.infinispan.client.hotrod.event.EventLogListener;
+import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
-import org.infinispan.commons.api.BasicCache;
 import org.infinispan.commons.equivalence.AnyServerEquivalence;
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.scripting.ScriptingManager;
+import org.infinispan.scripting.utils.ScriptingUtils;
 import org.infinispan.test.TestingUtil;
+import org.testng.AssertJUnit;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 /**
@@ -32,6 +39,8 @@ import org.testng.annotations.Test;
 @Test(groups = "functional", testName = "client.hotrod.ExecTest")
 public class ExecTest extends MultiHotRodServersTest {
    private static final String SCRIPT_CACHE = "___script_cache";
+   static final String REPL_CACHE = "R";
+   static final String DIST_CACHE = "D";
 
    static final int NUM_SERVERS = 2;
    static final int SIZE = 20;
@@ -39,47 +48,83 @@ public class ExecTest extends MultiHotRodServersTest {
    @Override
    protected void createCacheManagers() throws Throwable {
       createHotRodServers(NUM_SERVERS, new ConfigurationBuilder());
+      defineInAll(REPL_CACHE, CacheMode.REPL_SYNC);
+      defineInAll(DIST_CACHE, CacheMode.DIST_SYNC);
    }
 
-   public void testEmbeddedScriptRemoteExecution() throws IOException {
-      String cacheName = "testEmbeddedScriptRemoteExecution";
-      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, true);
+   @AfterMethod
+   @Override
+   protected void clearContent() throws Throwable {
+      clients.get(0).getCache(REPL_CACHE).clear();
+      clients.get(0).getCache(DIST_CACHE).clear();
+   }
+
+   private void defineInAll(String cacheName, CacheMode mode) {
+      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(mode, true);
+      builder.dataContainer()
+            .keyEquivalence(new AnyServerEquivalence())
+            .valueEquivalence(new AnyServerEquivalence())
+            .compatibility().enable()
+            .marshaller(new GenericJBossMarshaller());
+      defineInAll(cacheName, builder);
+   }
+
+   @Test(expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*Unknown task 'nonExistent\\.js'.*")
+   public void testRemovingNonExistentScript() {
+      clients.get(0).getCache().execute("nonExistent.js", new HashMap<>());
+   }
+
+   @Test(dataProvider = "CacheNameProvider")
+   public void testEmbeddedScriptRemoteExecution(String cacheName) throws IOException {
+      withScript(manager(0), "/test.js", scriptName -> {
+         populateCache(cacheName);
+         assertEquals(SIZE, clients.get(0).getCache(cacheName).size());
+         Map<String, String> params = new HashMap<>();
+         params.put("parameter", "guinness");
+         Integer result = clients.get(0).getCache(cacheName).execute(scriptName, params);
+         assertEquals(SIZE + 1, result.intValue());
+         assertEquals("guinness", clients.get(0).getCache(cacheName).get("parameter"));
+      });
+   }
+
+   @Test(dataProvider = "CacheNameProvider")
+   public void testRemoteScriptRemoteExecution(String cacheName) throws IOException {
+      withScript(manager(0), "/test.js", scriptName -> {
+         populateCache(cacheName);
+
+         assertEquals(SIZE, clients.get(0).getCache(cacheName).size());
+         Map<String, String> params = new HashMap<>();
+         params.put("parameter", "hoptimus prime");
+
+         Integer result = clients.get(0).getCache(cacheName).execute(scriptName, params);
+         assertEquals(SIZE + 1, result.intValue());
+         assertEquals("hoptimus prime", clients.get(0).getCache(cacheName).get("parameter"));
+      });
+   }
+
+   @Test(enabled = false, dataProvider = "CacheModeProvider", description = "Enable when ISPN-6300 is fixed.")
+   public void testScriptExecutionWithPassingParams(CacheMode cacheMode) throws IOException {
+      String cacheName = "testScriptExecutionWithPassingParams_" + cacheMode.toString();
+      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(cacheMode, true);
       builder.dataContainer().keyEquivalence(new AnyServerEquivalence()).valueEquivalence(new AnyServerEquivalence()).compatibility().enable().marshaller(new GenericJBossMarshaller());
       defineInAll(cacheName, builder);
-      ScriptingManager scriptingManager = manager(0).getGlobalComponentRegistry().getComponent(ScriptingManager.class);
-
-      try (InputStream is = this.getClass().getResourceAsStream("/test.js")) {
+      try (InputStream is = this.getClass().getResourceAsStream("/distExec.js")) {
          String script = TestingUtil.loadFileAsString(is);
-         scriptingManager.addScript("testEmbeddedScriptRemoteExecution.js", script);
+         manager(0).getCache(SCRIPT_CACHE).put("testScriptExecutionWithPassingParams.js", script);
       }
       populateCache(cacheName);
 
       assertEquals(SIZE, clients.get(0).getCache(cacheName).size());
       Map<String, String> params = new HashMap<>();
-      params.put("parameter", "guinness");
-      Integer result = clients.get(0).getCache(cacheName).execute("testEmbeddedScriptRemoteExecution.js", params);
-      assertEquals(SIZE + 1, result.intValue());
-      assertEquals("guinness", clients.get(0).getCache(cacheName).get("parameter"));
-   }
+      params.put("a", "hoptimus prime");
 
-   public void testRemoteScriptRemoteExecution() throws IOException {
-      String cacheName = "testRemoteScriptRemoteExecution";
-      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, true);
-      builder.dataContainer().keyEquivalence(new AnyServerEquivalence()).valueEquivalence(new AnyServerEquivalence()).compatibility().enable().marshaller(new GenericJBossMarshaller());
-      defineInAll(cacheName, builder);
-      try (InputStream is = this.getClass().getResourceAsStream("/test.js")) {
-         String script = TestingUtil.loadFileAsString(is);
-         clients.get(0).getCache(SCRIPT_CACHE).put("testRemoteScriptRemoteExecution.js", script);
-      }
-      populateCache(cacheName);
+      List<String> result = clients.get(0).getCache(cacheName).execute("testScriptExecutionWithPassingParams.js", params);
+      assertEquals(SIZE + 1, client(0).getCache(cacheName).size());
+      assertEquals("hoptimus prime", clients.get(0).getCache(cacheName).get("a"));
 
-      assertEquals(SIZE, clients.get(0).getCache(cacheName).size());
-      Map<String, String> params = new HashMap<>();
-      params.put("parameter", "hoptimus prime");
-
-      Integer result = clients.get(0).getCache(cacheName).execute("testRemoteScriptRemoteExecution.js", params);
-      assertEquals(SIZE + 1, result.intValue());
-      assertEquals("hoptimus prime", clients.get(0).getCache(cacheName).get("parameter"));
+      assertEquals(2, result.size());
+      assertTrue(result.contains(manager(0).getAddress()));
+      assertTrue(result.contains(manager(1).getAddress()));
    }
 
    private void populateCache(String cacheName) {
@@ -87,41 +132,96 @@ public class ExecTest extends MultiHotRodServersTest {
          clients.get(i % NUM_SERVERS).getCache(cacheName).put(String.format("Key %d", i), String.format("Value %d", i));
    }
 
-   public void testRemoteMapReduce() throws Exception {
-      String cacheName = "testRemoteMapReduce";
-      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, true);
-      builder.dataContainer().keyEquivalence(new AnyServerEquivalence()).valueEquivalence(new AnyServerEquivalence()).compatibility().enable().marshaller(new GenericJBossMarshaller());
+   @Test(enabled = false, dataProvider = "CacheModeProvider",
+           description = "Disabling this test until the distributed scripts in DIST mode are fixed - ISPN-6173")
+   public void testRemoteMapReduceWithStreams(CacheMode cacheMode) throws Exception {
+      String cacheName = "testRemoteMapReduce_Streams_dist_" + cacheMode.toString();
+      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(cacheMode, true);
+      builder.dataContainer().keyEquivalence(new AnyServerEquivalence()).valueEquivalence(new AnyServerEquivalence())
+              .compatibility().enable().marshaller(new GenericJBossMarshaller());
       defineInAll(cacheName, builder);
+      waitForClusterToForm(cacheName);
+
       RemoteCache<String, String> cache = clients.get(0).getCache(cacheName);
-      RemoteCache<String, String> scriptCache = clients.get(0).getCache(SCRIPT_CACHE);
-      loadData(cache, "/macbeth.txt");
-      loadScript(scriptCache, "/wordCountMapper.js");
-      loadScript(scriptCache, "/wordCountReducer.js");
-      loadScript(scriptCache, "/wordCountCollator.js");
-      LinkedHashMap<String, Double> results = cache.execute("wordCountMapper.js", new HashMap<String, String>());
-      assertEquals(20, results.size());
-      assertTrue(results.get("macbeth").equals(Double.valueOf(287)));
+      RemoteCache<String, String> scriptCache = clients.get(1).getCache(SCRIPT_CACHE);
+      ScriptingUtils.loadData(cache, "/macbeth.txt");
+      ScriptingManager scriptingManager = manager(0).getGlobalComponentRegistry().getComponent(ScriptingManager.class);
+      loadScript("/wordCountStream_dist.js", scriptingManager, "wordCountStream_dist.js");
+
+      ArrayList<Map<String, Long>> results = cache.execute("wordCountStream_dist.js", new HashMap<String, String>());
+      assertEquals(2, results.size());
+      assertEquals(3202, results.get(0).size());
+      assertEquals(3202, results.get(1).size());
+      assertTrue(results.get(0).get("macbeth").equals(Long.valueOf(287)));
+      assertTrue(results.get(1).get("macbeth").equals(Long.valueOf(287)));
    }
 
-   private void loadData(BasicCache<String, String> cache, String fileName) throws IOException {
-      try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(this.getClass().getResourceAsStream(fileName)))) {
-         int chunkSize = 10;
-         int chunkId = 0;
-
-         CharBuffer cbuf = CharBuffer.allocate(1024 * chunkSize);
-         while (bufferedReader.read(cbuf) >= 0) {
-            Buffer buffer = cbuf.flip();
-            String textChunk = buffer.toString();
-            cache.put(fileName + (chunkId++), textChunk);
-            cbuf.clear();
-         }
-      }
+   @Test(dataProvider = "CacheNameProvider")
+   public void testExecPutConstantGet(String cacheName) throws IOException {
+      withScript(manager(0), "/test-put-constant-get.js", scriptName -> {
+         Map<String, String> params = new HashMap<>();
+         String result = clients.get(0).getCache(cacheName).execute(scriptName, params);
+         assertEquals("hoptimus prime", result);
+         assertEquals("hoptimus prime", clients.get(0).getCache(cacheName).get("a"));
+      });
    }
 
-   private void loadScript(BasicCache<String, String> scriptCache, String fileName) throws IOException {
-      try (InputStream is = this.getClass().getResourceAsStream(fileName)) {
-         String script = TestingUtil.loadFileAsString(is);
-         scriptCache.put(fileName.replaceAll("\\/", ""), script);
+   @Test(dataProvider = "CacheNameProvider")
+   public void testExecReturnNull(String cacheName) throws IOException {
+      withScript(manager(0), "/test-null-return.js", scriptName -> {
+         Object result = clients.get(0).getCache(cacheName).execute(scriptName, new HashMap<>());
+         assertEquals(null, result);
+      });
+   }
+
+   @Test(dataProvider = "CacheNameProvider")
+   public void testLocalExecPutGet(String cacheName) {
+      execPutGet(cacheName, "/test-put-get.js", ExecMode.LOCAL, "local-key", "local-value");
+   }
+
+   @Test(dataProvider = "CacheNameProvider")
+   public void testDistExecPutGet(String cacheName) {
+      execPutGet(cacheName, "/test-put-get-dist.js", ExecMode.DIST, "dist-key", "dist-value");
+   }
+
+   @Test(dataProvider = "CacheNameProvider")
+   public void testLocalExecPutGetWithListener(String cacheName) {
+      final EventLogListener<String> l = new EventLogListener<>(clients.get(0).getCache(cacheName));
+      withClientListener(l, remote ->
+         withScript(manager(0), "/test-put-get.js", scriptName -> {
+            Map<String, String> params = new HashMap<>();
+            params.put("k", "local-key-listen");
+            params.put("v", "local-value-listen");
+            String result = remote.execute(scriptName, params);
+            l.expectOnlyCreatedEvent("local-key-listen");
+            assertEquals("local-value-listen", result);
+      }));
+   }
+
+   private void execPutGet(String cacheName, String path, ExecMode mode, String key, String value) {
+      withScript(manager(0), path, scriptName -> {
+         Map<String, String> params = new HashMap<>();
+         params.put("k", key);
+         params.put("v", value);
+         params.put("cacheName", cacheName);
+         Object results =  clients.get(0).getCache(cacheName).execute(scriptName, params);
+         mode.assertResult.accept(value, results);
+      });
+   }
+
+   @DataProvider(name = "CacheNameProvider")
+   private static Object[][] provideCacheMode() {
+      return new Object[][] {{REPL_CACHE}, {DIST_CACHE}};
+   }
+
+   enum ExecMode {
+      LOCAL(AssertJUnit::assertEquals),
+      DIST((v, r) -> assertEquals(Arrays.asList(v, v), r));
+
+      final BiConsumer<String, Object> assertResult;
+
+      ExecMode(BiConsumer<String, Object> assertResult) {
+         this.assertResult = assertResult;
       }
    }
 

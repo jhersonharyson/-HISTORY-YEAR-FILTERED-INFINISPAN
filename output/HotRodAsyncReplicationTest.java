@@ -1,17 +1,17 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.infinispan.test.TestingUtil.v;
+import static org.testng.AssertJUnit.assertEquals;
+
+import java.lang.reflect.Method;
+
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.commands.write.PutKeyValueCommand;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.test.ReplListener;
 import org.testng.annotations.Test;
-
-import java.lang.reflect.Method;
-
-import static org.infinispan.test.TestingUtil.v;
-import static org.testng.AssertJUnit.assertEquals;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 @Test(groups = "functional", testName = "client.hotrod.HotRodAsyncReplicationTest")
 public class HotRodAsyncReplicationTest extends MultiHotRodServersTest {
@@ -20,7 +20,6 @@ public class HotRodAsyncReplicationTest extends MultiHotRodServersTest {
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder builder = hotRodCacheConfiguration(
             getDefaultClusteredCacheConfig(CacheMode.REPL_ASYNC, false));
-      builder.clustering().async().replQueueInterval(1000L).useReplQueue(true);
       builder.eviction().maxEntries(3);
 
       createHotRodServers(2, builder);
@@ -54,7 +53,7 @@ public class HotRodAsyncReplicationTest extends MultiHotRodServersTest {
          replList = new ReplListener(cache(cacheIndex), true, true);
       else
          replList.reconfigureListener(true, true);
-         
+
       return replList;
    }
 

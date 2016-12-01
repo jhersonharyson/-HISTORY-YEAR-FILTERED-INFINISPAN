@@ -14,10 +14,16 @@ import org.infinispan.query.remote.client.QueryRequest;
  * @author anistor@redhat.com
  * @since 6.0
  */
-public final class RemoteQueryFactory extends BaseQueryFactory<Query> {
+public final class RemoteQueryFactory extends BaseQueryFactory {
 
    private final RemoteCacheImpl cache;
    private final SerializationContext serializationContext;
+
+   @Override
+   public Query create(String queryString) {
+      //todo [anistor] some params come from a builder, some from parsing the query string
+      return new RemoteQuery(this, cache, serializationContext, queryString, null, null, -1, -1);
+   }
 
    public RemoteQueryFactory(RemoteCacheImpl cache) {
       serializationContext = ProtoStreamMarshaller.getSerializationContext(cache.getRemoteCacheManager());
@@ -34,13 +40,13 @@ public final class RemoteQueryFactory extends BaseQueryFactory<Query> {
    }
 
    @Override
-   public QueryBuilder<Query> from(Class entityType) {
+   public QueryBuilder from(Class entityType) {
       String typeName = serializationContext.getMarshaller(entityType).getTypeName();
       return new RemoteQueryBuilder(this, cache, serializationContext, typeName);
    }
 
    @Override
-   public QueryBuilder<Query> from(String entityType) {
+   public QueryBuilder from(String entityType) {
       // just check that the type name is valid
       serializationContext.getMarshaller(entityType);
 

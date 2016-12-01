@@ -1,5 +1,13 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+
 import org.apache.commons.pool.impl.GenericKeyedObjectPool;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
@@ -14,15 +22,6 @@ import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
-import java.util.concurrent.ExecutionException;
-
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -50,13 +49,16 @@ public class HeavyLoadConnectionPoolingTest extends SingleCacheManagerTest {
 
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
-      Properties hotrodClientConf = new Properties();
-      hotrodClientConf.setProperty("infinispan.client.hotrod.server_list", "localhost:"+hotRodServer.getPort());
-      hotrodClientConf.setProperty("timeBetweenEvictionRunsMillis", "500");
-      hotrodClientConf.setProperty("minEvictableIdleTimeMillis", "100");
-      hotrodClientConf.setProperty("numTestsPerEvictionRun", "10");
-      hotrodClientConf.setProperty("infinispan.client.hotrod.ping_on_startup", "true");
-      remoteCacheManager = new RemoteCacheManager(hotrodClientConf);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder
+            .connectionPool()
+               .timeBetweenEvictionRuns(500)
+               .minEvictableIdleTime(100)
+               .numTestsPerEvictionRun(10)
+            .addServer().host("localhost").port(hotRodServer.getPort());
+
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
       remoteCache = remoteCacheManager.getCache();
 
       TcpTransportFactory tcpConnectionFactory = (TcpTransportFactory) TestingUtil.extractField(remoteCacheManager, "transportFactory");

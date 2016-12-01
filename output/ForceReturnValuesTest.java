@@ -1,5 +1,12 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNotNull;
+import static org.testng.AssertJUnit.assertNotSame;
+import static org.testng.AssertJUnit.assertNull;
+import static org.testng.AssertJUnit.assertSame;
+
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
@@ -8,11 +15,6 @@ import org.infinispan.test.fwk.CleanupAfterMethod;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
-
-import java.util.Properties;
-
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.testng.AssertJUnit.*;
 
 @Test(testName = "client.hotrod.ForceReturnValuesTest", groups = "functional")
 @CleanupAfterMethod
@@ -27,9 +29,10 @@ public class ForceReturnValuesTest extends SingleCacheManagerTest {
 
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
-      Properties hotrodClientConf = new Properties();
-      hotrodClientConf.put("infinispan.client.hotrod.server_list", "localhost:" + hotRodServer.getPort());
-      remoteCacheManager = new RemoteCacheManager(hotrodClientConf);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServer().host("localhost").port(hotRodServer.getPort());
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
       return cacheManager;
    }
 

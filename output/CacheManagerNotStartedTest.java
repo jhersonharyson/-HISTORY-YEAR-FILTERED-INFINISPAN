@@ -1,19 +1,19 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+
+import java.util.HashMap;
+
 import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
-import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
-
-import java.util.HashMap;
-
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.*;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -40,8 +40,10 @@ public class CacheManagerNotStartedTest extends SingleCacheManagerTest {
    protected void setup() throws Exception {
       super.setup();
       hotrodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
-      remoteCacheManager = new RemoteCacheManager(
-            "127.0.0.1:" + hotrodServer.getPort(), false);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServer().host("localhost").port(hotrodServer.getPort());
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build(), false);
    }
 
    @AfterClass

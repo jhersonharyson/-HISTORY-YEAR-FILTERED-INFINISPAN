@@ -1,10 +1,10 @@
 package org.infinispan.client.hotrod.impl;
 
-import org.infinispan.client.hotrod.ServerStatistics;
-
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.infinispan.client.hotrod.ServerStatistics;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -31,6 +31,6 @@ public class ServerStatisticsImpl implements ServerStatistics {
    @Override
    public Integer getIntStatistic(String statsName) {
       String value = stats.get(statsName);
-      return value == null ? null : Integer.parseInt(value); 
+      return value == null ? null : Integer.parseInt(value);
    }
 }

@@ -1,14 +1,12 @@
 package org.infinispan.client.hotrod.configuration;
 
-import java.util.NoSuchElementException;
 import java.util.Properties;
 
 import org.infinispan.client.hotrod.impl.TypedProperties;
 import org.infinispan.commons.configuration.Builder;
 
 /**
- *
- * ConnectionPoolConfigurationBuilder. Specified connection pooling properties for the HotRod client
+ * ConnectionPoolConfigurationBuilder. Specifies connection pooling properties for the HotRod client.
  *
  * @author Tristan Tarrant
  * @since 5.3
@@ -77,7 +75,7 @@ public class ConnectionPoolConfigurationBuilder extends AbstractConfigurationChi
 
    /**
     * The amount of time in milliseconds to wait for a connection to become available when the
-    * exhausted action is {@link ExhaustedAction#WAIT}, after which a {@link NoSuchElementException}
+    * exhausted action is {@link ExhaustedAction#WAIT}, after which a {@link java.util.NoSuchElementException}
     * will be thrown. If a negative value is supplied, the pool will block indefinitely.
     */
    public ConnectionPoolConfigurationBuilder maxWait(long maxWait) {

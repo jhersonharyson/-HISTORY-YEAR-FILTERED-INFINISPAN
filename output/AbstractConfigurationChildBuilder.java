@@ -2,10 +2,10 @@ package org.infinispan.client.hotrod.configuration;
 
 import java.util.Properties;
 
+import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
-import org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy;
 import org.infinispan.commons.marshall.Marshaller;
 
 /**
@@ -47,7 +47,7 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    }
 
    @Override
-   public ConfigurationBuilder balancingStrategy(Class<? extends RequestBalancingStrategy> balancingStrategy) {
+   public ConfigurationBuilder balancingStrategy(Class<? extends FailoverRequestBalancingStrategy> balancingStrategy) {
       return builder.balancingStrategy(balancingStrategy);
    }
 
@@ -59,6 +59,11 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    @Override
    public ConfigurationBuilder classLoader(ClassLoader classLoader) {
       return builder.classLoader(classLoader);
+   }
+
+   @Override
+   public ConfigurationBuilder clientIntelligence(ClientIntelligence clientIntelligence) {
+      return builder.clientIntelligence(clientIntelligence);
    }
 
    @Override
@@ -106,14 +111,18 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
       return builder.marshaller(marshaller);
    }
 
+   /**
+    * @deprecated Use {@link #version(ProtocolVersion)} instead.
+    */
+   @Deprecated
    @Override
-   public ConfigurationBuilder pingOnStartup(boolean pingOnStartup) {
-      return builder.pingOnStartup(pingOnStartup);
+   public ConfigurationBuilder protocolVersion(String protocolVersion) {
+      return builder.version(ProtocolVersion.parseVersion(protocolVersion));
    }
 
    @Override
-   public ConfigurationBuilder protocolVersion(String protocolVersion) {
-      return builder.protocolVersion(protocolVersion);
+   public ConfigurationBuilder version(ProtocolVersion protocolVersion) {
+      return builder.version(protocolVersion);
    }
 
    @Override

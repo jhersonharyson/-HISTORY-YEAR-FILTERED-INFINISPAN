@@ -1,5 +1,12 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.infinispan.test.TestingUtil.killCacheManagers;
+
+import java.util.HashMap;
+
 import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -8,12 +15,6 @@ import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterTest;
 import org.testng.annotations.Test;
-
-import java.util.HashMap;
-
-import static org.infinispan.test.TestingUtil.*;
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.*;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -32,8 +33,12 @@ public class CacheManagerStoppedTest extends SingleCacheManagerTest {
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       cacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
       cacheManager.defineConfiguration(CACHE_NAME, hotRodCacheConfiguration().build());
+      cacheManager.getCache(CACHE_NAME);
       hotrodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
-      remoteCacheManager = new RemoteCacheManager("localhost:" + hotrodServer.getPort(), true);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServer().host("localhost").port(hotrodServer.getPort());
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build(), true);
       return cacheManager;
    }
 

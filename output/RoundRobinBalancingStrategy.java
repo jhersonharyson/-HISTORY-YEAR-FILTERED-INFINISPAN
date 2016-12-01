@@ -1,16 +1,16 @@
 package org.infinispan.client.hotrod.impl.transport.tcp;
 
-import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.client.hotrod.logging.LogFactory;
-
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Set;
 
+import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.client.hotrod.logging.LogFactory;
+
 /**
- * Round-robin implementation for {@link org.infinispan.client.hotrod.impl.transport.tcp.RequestBalancingStrategy}.
+ * Round-robin implementation for {@link org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy}.
  *
  * @author Mircea.Markus@jboss.com
  * @since 4.1
@@ -26,7 +26,7 @@ public class RoundRobinBalancingStrategy implements FailoverRequestBalancingStra
 
    @Override
    public void setServers(Collection<SocketAddress> servers) {
-      this.servers = servers.toArray(new InetSocketAddress[servers.size()]);
+      this.servers = servers.toArray(new SocketAddress[servers.size()]);
       // keep the old index if possible so that we don't produce more requests for the first server
       if (index >= this.servers.length) {
          index = 0;
@@ -58,11 +58,6 @@ public class RoundRobinBalancingStrategy implements FailoverRequestBalancingStra
             return server;
          }
       }
-   }
-
-   @Override
-   public SocketAddress nextServer() {
-      return nextServer(null);
    }
 
    /**

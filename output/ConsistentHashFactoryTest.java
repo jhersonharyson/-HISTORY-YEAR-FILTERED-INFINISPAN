@@ -1,11 +1,13 @@
 package org.infinispan.client.hotrod;
 
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNotNull;
+
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashFactory;
-import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV1;
+import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.testng.annotations.Test;
-import static org.testng.AssertJUnit.*;
 
 /**
  * Tester for ConsistentHashFactory.
@@ -18,20 +20,20 @@ public class ConsistentHashFactoryTest {
 
    public void testPropertyCorrectlyRead() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.consistentHashImpl(1, SomeCustomConsistentHashV1.class);
+      builder.consistentHashImpl(2, SomeCustomConsistentHashV2.class);
       ConsistentHashFactory chf = new ConsistentHashFactory();
       chf.init(builder.build());
-      ConsistentHash hash = chf.newConsistentHash(1);
+      ConsistentHash hash = chf.newConsistentHash(2);
       assertNotNull(hash);
-      assertEquals(hash.getClass(), SomeCustomConsistentHashV1.class);
+      assertEquals(hash.getClass(), SomeCustomConsistentHashV2.class);
    }
 
    public void testNoChDefined() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
       ConsistentHashFactory chf = new ConsistentHashFactory();
       chf.init(builder.build());
-      ConsistentHash hash = chf.newConsistentHash(1);
+      ConsistentHash hash = chf.newConsistentHash(2);
       assertNotNull(hash);
-      assertEquals(hash.getClass(), ConsistentHashV1.class);
+      assertEquals(hash.getClass(), ConsistentHashV2.class);
    }
 }

@@ -1,23 +1,21 @@
 package org.infinispan.client.hotrod;
 
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.testng.AssertJUnit.assertEquals;
+
+import java.net.InetSocketAddress;
+
 import org.apache.commons.pool.impl.GenericKeyedObjectPool;
-import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
+import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
-import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
-
-import java.net.InetSocketAddress;
-import java.util.Properties;
-
-import static org.testng.AssertJUnit.assertEquals;
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -35,13 +33,18 @@ public class DroppedConnectionsTest extends SingleCacheManagerTest {
       cacheManager = TestCacheManagerFactory.createCacheManager(
             hotRodCacheConfiguration(getDefaultStandaloneCacheConfig(false)));
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
-      Properties hrClientConfig = new Properties();
-      hrClientConfig.put("testWhileIdle", "false");
-      hrClientConfig.put("minIdle","1");
-      hrClientConfig.put("maxIdle","2");
-      hrClientConfig.put("maxActive","2");
-      hrClientConfig.put("infinispan.client.hotrod.server_list", "127.0.0.1:" + hotRodServer.getPort());
-      remoteCacheManager = new InternalRemoteCacheManager(hrClientConfig);
+
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder
+            .connectionPool()
+               .testWhileIdle(false)
+               .minIdle(1)
+               .maxIdle(2)
+               .maxActive(2)
+            .addServer().host("localhost").port(hotRodServer.getPort());
+
+      remoteCacheManager = new InternalRemoteCacheManager(clientBuilder.build());
       rc = remoteCacheManager.getCache();
       transportFactory = (TcpTransportFactory) ((InternalRemoteCacheManager) remoteCacheManager).getTransportFactory();
       return cacheManager;
@@ -67,7 +70,7 @@ public class DroppedConnectionsTest extends SingleCacheManagerTest {
       TcpTransport tcpConnection = (TcpTransport) keyedObjectPool.borrowObject(address);
       keyedObjectPool.returnObject(address, tcpConnection);//now we have a reference to the single connection in pool
 
-      tcpConnection.destroy();
+      tcpConnection.release();
 
       assertEquals("v", rc.get("k"));
       assertEquals(0, keyedObjectPool.getNumActive(address));

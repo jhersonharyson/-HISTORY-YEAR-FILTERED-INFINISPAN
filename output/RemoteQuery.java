@@ -1,5 +1,11 @@
 package org.infinispan.client.hotrod.impl.query;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.operations.QueryOperation;
@@ -11,12 +17,6 @@ import org.infinispan.protostream.WrappedMessage;
 import org.infinispan.query.dsl.QueryFactory;
 import org.infinispan.query.dsl.impl.BaseQuery;
 import org.infinispan.query.remote.client.QueryResponse;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 
 /**
  * @author anistor@redhat.com
@@ -33,8 +33,8 @@ public final class RemoteQuery extends BaseQuery {
    private int totalResults;
 
    RemoteQuery(QueryFactory queryFactory, RemoteCacheImpl cache, SerializationContext serializationContext,
-               String jpaQuery, Map<String, Object> namedParameters, String[] projection, long startOffset, int maxResults) {
-      super(queryFactory, jpaQuery, namedParameters, projection, startOffset, maxResults);
+               String queryString, Map<String, Object> namedParameters, String[] projection, long startOffset, int maxResults) {
+      super(queryFactory, queryString, namedParameters, projection, startOffset, maxResults);
       this.cache = cache;
       this.serializationContext = serializationContext;
    }
@@ -47,26 +47,31 @@ public final class RemoteQuery extends BaseQuery {
    @Override
    @SuppressWarnings("unchecked")
    public <T> List<T> list() {
-      if (results == null) {
-         results = executeQuery();
-      }
-
+      executeQuery();
       return (List<T>) results;
    }
 
-   private List<Object> executeQuery() {
-      checkParameters();
+   @Override
+   public int getResultSize() {
+      executeQuery();
+      return totalResults;
+   }
 
-      QueryOperation op = cache.getOperationsFactory().newQueryOperation(this);
-      QueryResponse response = op.execute();
-      totalResults = (int) response.getTotalResults();
-      return unwrapResults(response.getProjectionSize(), response.getResults());
+   private void executeQuery() {
+      if (results == null) {
+         checkParameters();
+
+         QueryOperation op = cache.getOperationsFactory().newQueryOperation(this);
+         QueryResponse response = op.execute();
+         totalResults = (int) response.getTotalResults();
+         results = unwrapResults(response.getProjectionSize(), response.getResults());
+      }
    }
 
    private List<Object> unwrapResults(int projectionSize, List<WrappedMessage> results) {
       List<Object> unwrappedResults;
       if (projectionSize > 0) {
-         unwrappedResults = new ArrayList<Object>(results.size() / projectionSize);
+         unwrappedResults = new ArrayList<>(results.size() / projectionSize);
          Iterator<WrappedMessage> it = results.iterator();
          while (it.hasNext()) {
             Object[] row = new Object[projectionSize];
@@ -76,15 +81,17 @@ public final class RemoteQuery extends BaseQuery {
             unwrappedResults.add(row);
          }
       } else {
-         unwrappedResults = new ArrayList<Object>(results.size());
+         unwrappedResults = new ArrayList<>(results.size());
          for (WrappedMessage r : results) {
-            try {
-               byte[] bytes = (byte[]) r.getValue();
-               Object o = ProtobufUtil.fromWrappedByteArray(serializationContext, bytes);
-               unwrappedResults.add(o);
-            } catch (IOException e) {
-               throw new HotRodClientException(e);
+            Object o = r.getValue();
+            if (o instanceof byte[]) {
+               try {
+                  o = ProtobufUtil.fromWrappedByteArray(serializationContext, (byte[]) o);
+               } catch (IOException e) {
+                  throw new HotRodClientException(e);
+               }
             }
+            unwrappedResults.add(o);
          }
       }
       return unwrappedResults;
@@ -100,12 +107,6 @@ public final class RemoteQuery extends BaseQuery {
       }
    }
 
-   @Override
-   public int getResultSize() {
-      list();
-      return totalResults;
-   }
-
    public SerializationContext getSerializationContext() {
       return serializationContext;
    }
@@ -113,7 +114,7 @@ public final class RemoteQuery extends BaseQuery {
    @Override
    public String toString() {
       return "RemoteQuery{" +
-            "jpaQuery=" + jpaQuery +
+            "queryString=" + queryString +
             ", namedParameters=" + namedParameters +
             ", startOffset=" + startOffset +
             ", maxResults=" + maxResults +

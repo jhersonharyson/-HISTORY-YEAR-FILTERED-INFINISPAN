@@ -1,10 +1,26 @@
 package org.infinispan.client.hotrod;
 
-import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
+import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.assertHotRodEquals;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.marshall;
+import static org.infinispan.test.TestingUtil.blockUntilCacheStatusAchieved;
+import static org.infinispan.test.TestingUtil.blockUntilViewReceived;
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNotNull;
+
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransport;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
+import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.distribution.DistributionManager;
@@ -18,20 +34,6 @@ import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
-
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
-import java.util.Random;
-
-import static org.infinispan.server.hotrod.test.HotRodTestingUtil.*;
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertNotNull;
-
-import static org.infinispan.test.TestingUtil.*;
-import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.*;
 
 /**
  * @author Mircea.Markus@jboss.com
@@ -81,17 +83,17 @@ public class CSAIntegrationTest extends HitsAwareCacheManagersTest {
       blockUntilCacheStatusAchieved(manager(2).getCache(), ComponentStatus.RUNNING, 10000);
 
       //Important: this only connects to one of the two servers!
-      Properties props = new Properties();
-      props.put("infinispan.client.hotrod.server_list", "localhost:" + hotRodServer2.getPort() + ";localhost:" + hotRodServer2.getPort());
-      props.put("infinispan.client.hotrod.ping_on_startup", "true");
-      setHotRodProtocolVersion(props);
-      remoteCacheManager = new InternalRemoteCacheManager(props);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder
+            .addServers("localhost:" + hotRodServer2.getPort() + ";localhost:" + hotRodServer2.getPort());
+      remoteCacheManager = new InternalRemoteCacheManager(clientBuilder.build());
       remoteCache = remoteCacheManager.getCache();
 
       tcpTransportFactory = (TcpTransportFactory) ((InternalRemoteCacheManager) remoteCacheManager).getTransportFactory();
    }
 
-   protected void setHotRodProtocolVersion(Properties props) {
+   protected void setHotRodProtocolVersion(org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder) {
       // No-op, use default Hot Rod protocol version
    }
 

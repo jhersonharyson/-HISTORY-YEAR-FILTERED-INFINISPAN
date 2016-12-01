@@ -1,20 +1,18 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import static java.util.Arrays.stream;
+
 import java.net.SocketAddress;
 import java.util.BitSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.configuration.ClientIntelligence;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
-import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.client.hotrod.logging.LogFactory;
-
-import static java.util.Arrays.stream;
 
 /**
  * @author gustavonalle
@@ -22,23 +20,23 @@ import static java.util.Arrays.stream;
  */
 public class IterationStartOperation extends RetryOnFailureOperation<IterationStartResponse> {
 
-   private static final Log log = LogFactory.getLog(IterationStartOperation.class);
-
-
    private final String filterConverterFactory;
    private final byte[][] filterParameters;
    private final Set<Integer> segments;
    private final int batchSize;
    private final TransportFactory transportFactory;
+   private final boolean metadata;
 
-   protected IterationStartOperation(Codec codec, int flags, byte[] cacheName, AtomicInteger topologyId,
-                                     String filterConverterFactory, byte[][] filterParameters, Set<Integer> segments, int batchSize, TransportFactory transportFactory) {
-      super(codec, transportFactory, cacheName, topologyId, flags);
+   IterationStartOperation(Codec codec, int flags, ClientIntelligence clientIntelligence, byte[] cacheName, AtomicInteger topologyId,
+                           String filterConverterFactory, byte[][] filterParameters, Set<Integer> segments,
+                           int batchSize, TransportFactory transportFactory, boolean metadata) {
+      super(codec, transportFactory, cacheName, topologyId, flags, clientIntelligence);
       this.filterConverterFactory = filterConverterFactory;
       this.filterParameters = filterParameters;
       this.segments = segments;
       this.batchSize = batchSize;
       this.transportFactory = transportFactory;
+      this.metadata = metadata;
    }
 
    @Override
@@ -67,6 +65,8 @@ public class IterationStartOperation extends RetryOnFailureOperation<IterationSt
          }
       }
       transport.writeVInt(batchSize);
+      transport.writeByte((short) (metadata ? 1 : 0));
+
       transport.flush();
 
       readHeaderAndValidate(transport, params);

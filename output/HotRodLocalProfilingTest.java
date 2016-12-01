@@ -1,5 +1,7 @@
 package org.infinispan.client.hotrod.stress;
 
+import java.util.concurrent.TimeUnit;
+
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
@@ -11,8 +13,6 @@ import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
-
-import java.util.concurrent.TimeUnit;
 
 /**
  * A simple test that stresses a local HotRod server.
@@ -27,7 +27,10 @@ public class HotRodLocalProfilingTest extends SingleCacheManagerTest {
       long nanos = System.nanoTime();
       HotRodServer hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
       String servers = HotRodClientTestingUtil.getServersString(hotRodServer);
-      RemoteCacheManager remoteCacheManager = new RemoteCacheManager(servers);
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
+            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      clientBuilder.addServers(servers);
+      RemoteCacheManager remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
       RemoteCache<Object, Object> remoteCache = remoteCacheManager.getCache();
 
       for (int i = 0; i < 10000000; i++) {

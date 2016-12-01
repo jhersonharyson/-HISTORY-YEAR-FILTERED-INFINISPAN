@@ -1,17 +1,15 @@
 package org.infinispan.client.hotrod;
 
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNull;
+
+import java.util.concurrent.TimeUnit;
+
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.commons.equivalence.AnyServerEquivalence;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.testng.annotations.Test;
-
-import java.lang.reflect.Method;
-import java.util.concurrent.TimeUnit;
-
-import static org.infinispan.test.TestingUtil.*;
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertNull;
 
 /**
  * This test verifies that an entry can be expired from the Hot Rod server
@@ -20,7 +18,7 @@ import static org.testng.AssertJUnit.assertNull;
  * @author William Burns
  * @since 8.0
  */
-@Test(groups = "functional", testName = "client.hotrod.ExpiryTest")
+@Test(groups = "functional", testName = "client.hotrod.MixedExpiryTest")
 public class MixedExpiryTest extends MultiHotRodServersTest {
    @Override
    protected void createCacheManagers() throws Throwable {

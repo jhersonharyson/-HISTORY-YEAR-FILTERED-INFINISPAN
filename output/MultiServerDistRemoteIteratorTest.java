@@ -1,15 +1,23 @@
 package org.infinispan.client.hotrod.impl.iteration;
 
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
+import static org.testng.Assert.assertEquals;
+
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.query.dsl.embedded.testdomain.hsearch.AccountHS;
+import org.infinispan.test.TestingUtil;
 import org.testng.annotations.Test;
-
-import java.net.InetSocketAddress;
-import java.util.Map;
-
-import static org.testng.Assert.assertEquals;
 
 /**
  * @author gustavonalle
@@ -26,9 +34,43 @@ public class MultiServerDistRemoteIteratorTest extends BaseMultiServerRemoteIter
    }
 
    private ConfigurationBuilder getCacheConfiguration() {
-      ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
-      builder.clustering().hash().numOwners(2);
+      ConfigurationBuilder builder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
+      builder.clustering().hash().numSegments(60).numOwners(2);
       return builder;
+   }
+
+
+   private static class TestSegmentKeyTracker implements KeyTracker {
+
+      List<Integer> finished = new ArrayList<>();
+
+      @Override
+      public boolean track(byte[] key, short status) {
+         return true;
+      }
+
+      @Override
+      public void segmentsFinished(byte[] finishedSegments) {
+         BitSet bitSet = BitSet.valueOf(finishedSegments);
+         bitSet.stream().forEach(finished::add);
+      }
+
+      @Override
+      public Set<Integer> missedSegments() {
+         return null;
+      }
+   }
+
+   public void testSegmentFinishedCallback() {
+      RemoteCache<Integer, AccountHS> cache = clients.get(0).getCache();
+      populateCache(CACHE_SIZE, this::newAccount, cache);
+      TestSegmentKeyTracker testSegmentKeyTracker = new TestSegmentKeyTracker();
+
+      try (CloseableIterator<Map.Entry<Object, Object>> iterator = cache.retrieveEntries(null, 3)) {
+         TestingUtil.replaceField(testSegmentKeyTracker, "segmentKeyTracker", iterator, RemoteCloseableIterator.class);
+         while (iterator.hasNext()) iterator.next();
+         assertEquals(60, testSegmentKeyTracker.finished.size());
+      }
    }
 
    @Override
@@ -38,8 +80,7 @@ public class MultiServerDistRemoteIteratorTest extends BaseMultiServerRemoteIter
               .host("localhost")
               .port(serverPort)
               .maxRetries(maxRetries())
-              .balancingStrategy(new PreferredServerBalancingStrategy(new InetSocketAddress("localhost", serverPort)))
-              .pingOnStartup(false);
+              .balancingStrategy(new PreferredServerBalancingStrategy(new InetSocketAddress("localhost", serverPort)));
       return clientBuilder;
    }
 
@@ -55,7 +96,7 @@ public class MultiServerDistRemoteIteratorTest extends BaseMultiServerRemoteIter
 
    private void assertIterationActiveOnlyOnServer(int index) {
       for (int i = 0; i < servers.size(); i++) {
-         int activeIterations = server(i).iterationManager().activeIterations();
+         int activeIterations = server(i).getIterationManager().activeIterations();
          if (i == index) {
             assertEquals(1L, activeIterations);
          } else {

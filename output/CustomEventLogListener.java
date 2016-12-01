@@ -11,11 +11,14 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryCreated;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryExpired;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryModified;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryRemoved;
 import org.infinispan.client.hotrod.annotation.ClientListener;
+import org.infinispan.filter.NamedFactory;
+import org.infinispan.marshall.core.ExternalPojo;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.filter.AbstractCacheEventFilterConverter;
 import org.infinispan.notifications.cachelistener.filter.CacheEventConverter;
@@ -23,14 +26,25 @@ import org.infinispan.notifications.cachelistener.filter.CacheEventConverterFact
 import org.infinispan.notifications.cachelistener.filter.CacheEventFilterConverter;
 import org.infinispan.notifications.cachelistener.filter.CacheEventFilterConverterFactory;
 import org.infinispan.notifications.cachelistener.filter.EventType;
-import org.infinispan.filter.NamedFactory;
 
 @ClientListener(converterFactoryName = "test-converter-factory")
-public abstract class CustomEventLogListener<E> {
+public abstract class CustomEventLogListener<K, E> implements RemoteCacheSupplier<K> {
    BlockingQueue<E> createdCustomEvents = new ArrayBlockingQueue<>(128);
    BlockingQueue<E> modifiedCustomEvents = new ArrayBlockingQueue<>(128);
    BlockingQueue<E> removedCustomEvents = new ArrayBlockingQueue<>(128);
    BlockingQueue<E> expiredCustomEvents = new ArrayBlockingQueue<>(128);
+
+   private final RemoteCache<K, ?> remote;
+
+   protected CustomEventLogListener(RemoteCache<K, ?> remote) {
+      this.remote = remote;
+   }
+
+   @Override
+   @SuppressWarnings("unchecked")
+   public <V> RemoteCache<K, V> get() {
+      return (RemoteCache<K, V>) remote;
+   }
 
    public E pollEvent(ClientEvent.Type type) {
       try {
@@ -67,7 +81,7 @@ public abstract class CustomEventLogListener<E> {
       E event = pollEvent(type);
       assertAnyEquals(expected, event);
    }
-   
+
    public void expectCreatedEvent(E expected) {
       expectSingleCustomEvent(ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED, expected);
       expectNoEvents(ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
@@ -169,7 +183,8 @@ public abstract class CustomEventLogListener<E> {
    }
 
    @ClientListener(converterFactoryName = "static-converter-factory")
-   public static class StaticCustomEventLogListener extends CustomEventLogListener<CustomEvent> {
+   public static class StaticCustomEventLogListener<K> extends CustomEventLogListener<K, CustomEvent> {
+      public StaticCustomEventLogListener(RemoteCache<K, ?> r) { super(r); }
 
       @Override
       public void expectSingleCustomEvent(ClientEvent.Type type, CustomEvent expected) {
@@ -178,12 +193,12 @@ public abstract class CustomEventLogListener<E> {
          assertNotNull(event.timestamp); // check only custom field, value can be null
          assertAnyEquals(expected, event);
       }
-      
+
       public void expectOrderedEventQueue(ClientEvent.Type type) {
          BlockingQueue<CustomEvent> queue = queue(type);
-         if (queue.size() < 2) 
+         if (queue.size() < 2)
             return;
-         
+
          try {
             CustomEvent before = queue.poll(10, TimeUnit.SECONDS);
             Iterator<CustomEvent> iter = queue.iterator();
@@ -196,7 +211,7 @@ public abstract class CustomEventLogListener<E> {
             throw new AssertionError(e);
          }
       }
-      
+
       private void expectTimeOrdered(CustomEvent before, CustomEvent after) {
          assertTrue("Before timestamp=" + before.timestamp + ", after timestamp=" + after.timestamp,
             before.timestamp < after.timestamp);
@@ -204,16 +219,24 @@ public abstract class CustomEventLogListener<E> {
    }
 
    @ClientListener(converterFactoryName = "raw-static-converter-factory", useRawData = true)
-   public static class RawStaticCustomEventLogListener extends CustomEventLogListener<byte[]> {}
+   public static class RawStaticCustomEventLogListener<K> extends CustomEventLogListener<K, byte[]> {
+      public RawStaticCustomEventLogListener(RemoteCache<K, ?> r) { super(r); }
+   }
 
    @ClientListener(converterFactoryName = "static-converter-factory", includeCurrentState = true)
-   public static class StaticCustomEventLogWithStateListener extends CustomEventLogListener<CustomEvent> {}
+   public static class StaticCustomEventLogWithStateListener<K> extends CustomEventLogListener<K, CustomEvent> {
+      public StaticCustomEventLogWithStateListener(RemoteCache<K, ?> r) { super(r); }
+   }
 
    @ClientListener(converterFactoryName = "dynamic-converter-factory")
-   public static class DynamicCustomEventLogListener extends CustomEventLogListener<CustomEvent> {}
+   public static class DynamicCustomEventLogListener<K> extends CustomEventLogListener<K, CustomEvent> {
+      public DynamicCustomEventLogListener(RemoteCache<K, ?> r) { super(r); }
+   }
 
    @ClientListener(converterFactoryName = "dynamic-converter-factory", includeCurrentState = true)
-   public static class DynamicCustomEventWithStateLogListener extends CustomEventLogListener<CustomEvent> {}
+   public static class DynamicCustomEventWithStateLogListener<K> extends CustomEventLogListener<K, CustomEvent> {
+      public DynamicCustomEventWithStateLogListener(RemoteCache<K, ?> r) { super(r); }
+   }
 
    @NamedFactory(name = "static-converter-factory")
    public static class StaticConverterFactory implements CacheEventConverterFactory {
@@ -222,7 +245,7 @@ public abstract class CustomEventLogListener<E> {
          return new StaticConverter();
       }
 
-      static class StaticConverter implements CacheEventConverter<Integer, String, CustomEvent>, Serializable {
+      static class StaticConverter implements CacheEventConverter<Integer, String, CustomEvent>, Serializable, ExternalPojo {
          @Override
          public CustomEvent convert(Integer key, String previousValue, Metadata previousMetadata, String value,
                                     Metadata metadata, EventType eventType) {
@@ -306,11 +329,11 @@ public abstract class CustomEventLogListener<E> {
       }
 
       static class FilterConverter extends AbstractCacheEventFilterConverter<Integer, String, CustomEvent>
-         implements Serializable {
+         implements Serializable, ExternalPojo {
          private final Object[] params;
          private final CallbackCounter counter = new NumericCallbackCounter();
 
-         public FilterConverter(Object[] params) {
+         FilterConverter(Object[] params) {
             this.params = params;
          }
 
@@ -327,7 +350,9 @@ public abstract class CustomEventLogListener<E> {
    }
 
    @ClientListener(filterFactoryName = "filter-converter-factory", converterFactoryName = "filter-converter-factory")
-   public static class FilterCustomEventLogListener extends CustomEventLogListener<CustomEvent> {}
+   public static class FilterCustomEventLogListener<K> extends CustomEventLogListener<K, CustomEvent> {
+      public FilterCustomEventLogListener(RemoteCache<K, ?> r) { super(r); }
+   }
 
    static byte[] concat(byte[] a, byte[] b) {
       int aLen = a.length;
