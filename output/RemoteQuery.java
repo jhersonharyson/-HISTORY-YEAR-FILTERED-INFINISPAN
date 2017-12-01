@@ -6,14 +6,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.operations.QueryOperation;
-import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.protostream.ProtobufUtil;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.WrappedMessage;
+import org.infinispan.query.dsl.IndexedQueryMode;
 import org.infinispan.query.dsl.QueryFactory;
 import org.infinispan.query.dsl.impl.BaseQuery;
 import org.infinispan.query.remote.client.QueryResponse;
@@ -24,19 +24,27 @@ import org.infinispan.query.remote.client.QueryResponse;
  */
 public final class RemoteQuery extends BaseQuery {
 
-   private static final Log log = LogFactory.getLog(RemoteQuery.class, Log.class);
-
-   private final RemoteCacheImpl cache;
+   private final RemoteCacheImpl<?, ?> cache;
    private final SerializationContext serializationContext;
+   private final IndexedQueryMode indexedQueryMode;
 
-   private List results = null;
+   private List<?> results = null;
    private int totalResults;
 
-   RemoteQuery(QueryFactory queryFactory, RemoteCacheImpl cache, SerializationContext serializationContext,
+   RemoteQuery(QueryFactory queryFactory, RemoteCacheImpl<?, ?> cache, SerializationContext serializationContext,
+               String queryString, IndexedQueryMode indexQueryMode) {
+      super(queryFactory, queryString);
+      this.cache = cache;
+      this.serializationContext = serializationContext;
+      this.indexedQueryMode = indexQueryMode;
+   }
+
+   RemoteQuery(QueryFactory queryFactory, RemoteCacheImpl<?, ?> cache, SerializationContext serializationContext,
                String queryString, Map<String, Object> namedParameters, String[] projection, long startOffset, int maxResults) {
       super(queryFactory, queryString, namedParameters, projection, startOffset, maxResults);
       this.cache = cache;
       this.serializationContext = serializationContext;
+      this.indexedQueryMode = IndexedQueryMode.FETCH;
    }
 
    @Override
@@ -59,7 +67,7 @@ public final class RemoteQuery extends BaseQuery {
 
    private void executeQuery() {
       if (results == null) {
-         checkParameters();
+         validateNamedParameters();
 
          QueryOperation op = cache.getOperationsFactory().newQueryOperation(this);
          QueryResponse response = op.execute();
@@ -84,7 +92,7 @@ public final class RemoteQuery extends BaseQuery {
          unwrappedResults = new ArrayList<>(results.size());
          for (WrappedMessage r : results) {
             Object o = r.getValue();
-            if (o instanceof byte[]) {
+            if (serializationContext != null && o instanceof byte[]) {
                try {
                   o = ProtobufUtil.fromWrappedByteArray(serializationContext, (byte[]) o);
                } catch (IOException e) {
@@ -97,18 +105,19 @@ public final class RemoteQuery extends BaseQuery {
       return unwrappedResults;
    }
 
-   private void checkParameters() {
-      if (namedParameters != null) {
-         for (Map.Entry<String, Object> e : namedParameters.entrySet()) {
-            if (e.getValue() == null) {
-               throw log.queryParameterNotSet(e.getKey());
-            }
-         }
-      }
-   }
-
+   /**
+    * Get the protobuf SerializationContext or {@code null} if we are not using protobuf.
+    */
    public SerializationContext getSerializationContext() {
       return serializationContext;
+   }
+
+   public RemoteCache<?, ?> getCache() {
+      return cache;
+   }
+
+   public IndexedQueryMode getIndexedQueryMode() {
+      return indexedQueryMode;
    }
 
    @Override

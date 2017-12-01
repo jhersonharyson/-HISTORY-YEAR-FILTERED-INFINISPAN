@@ -3,7 +3,7 @@ package org.infinispan.client.hotrod.impl.operations;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.infinispan.client.hotrod.configuration.ClientIntelligence;
+import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transport.Transport;
@@ -28,15 +28,15 @@ public class PutIfAbsentOperation<V> extends AbstractKeyValueOperation<V> {
 
    public PutIfAbsentOperation(Codec codec, TransportFactory transportFactory,
                                Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId,
-                               int flags, ClientIntelligence clientIntelligence, byte[] value, long lifespan,
+                               int flags, Configuration cfg, byte[] value, long lifespan,
                                TimeUnit lifespanTimeUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
-      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, clientIntelligence, value,
+      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, cfg, value,
             lifespan, lifespanTimeUnit, maxIdleTime, maxIdleTimeUnit);
    }
 
    @Override
    protected V executeOperation(Transport transport) {
-      short status = sendPutOperation(transport, PUT_IF_ABSENT_REQUEST, PUT_IF_ABSENT_RESPONSE);
+      short status = sendKeyValueOperation(transport, PUT_IF_ABSENT_REQUEST, PUT_IF_ABSENT_RESPONSE);
       V previousValue = null;
       if (HotRodConstants.isNotExecuted(status)) {
          previousValue = returnPossiblePrevValue(transport, status);

@@ -1,20 +1,27 @@
 package org.infinispan.client.hotrod;
 
+import static java.util.Arrays.asList;
+
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
+import org.infinispan.client.hotrod.counter.impl.RemoteCounterManager;
 import org.infinispan.client.hotrod.event.ClientListenerNotifier;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
+import org.infinispan.client.hotrod.impl.RemoteCacheManagerAdminImpl;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingOperation.PingResult;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
@@ -25,12 +32,14 @@ import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.near.NearCacheService;
+import org.infinispan.commons.api.CacheContainerAdmin;
 import org.infinispan.commons.executors.ExecutorFactory;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.uberjar.ManifestUberJarDuplicatedJarsWarner;
 import org.infinispan.commons.util.uberjar.UberJarDuplicatedJarsWarner;
+import org.infinispan.counter.api.CounterManager;
 
 /**
  * Factory for {@link org.infinispan.client.hotrod.RemoteCache}s. <p/> <p> <b>Lifecycle:</b> </p> In order to be able to
@@ -50,13 +59,12 @@ import org.infinispan.commons.util.uberjar.UberJarDuplicatedJarsWarner;
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-public class RemoteCacheManager implements RemoteCacheContainer {
+public class RemoteCacheManager implements RemoteCacheContainer, Closeable {
 
    private static final Log log = LogFactory.getLog(RemoteCacheManager.class);
 
    public static final String DEFAULT_CACHE_NAME = "___defaultcache";
    public static final String HOTROD_CLIENT_PROPERTIES = "hotrod-client.properties";
-
 
    private volatile boolean started = false;
    private final Map<RemoteCacheKey, RemoteCacheHolder> cacheName2RemoteCache = new HashMap<>();
@@ -68,6 +76,9 @@ public class RemoteCacheManager implements RemoteCacheContainer {
    protected TransportFactory transportFactory;
    private ExecutorService asyncExecutorService;
    protected ClientListenerNotifier listenerNotifier;
+   private final Runnable start = this::start;
+   private final Runnable stop = this::stop;
+   private final RemoteCounterManager counterManager;
 
    /**
     *
@@ -92,6 +103,7 @@ public class RemoteCacheManager implements RemoteCacheContainer {
     */
    public RemoteCacheManager(Configuration configuration, boolean start) {
       this.configuration = configuration;
+      this.counterManager = new RemoteCounterManager();
       if (start) start();
    }
 
@@ -126,6 +138,7 @@ public class RemoteCacheManager implements RemoteCacheContainer {
          }
       }
       this.configuration = builder.build();
+      this.counterManager = new RemoteCounterManager();
       if (start) start();
    }
 
@@ -171,11 +184,18 @@ public class RemoteCacheManager implements RemoteCacheContainer {
       return createRemoteCache("", forceReturnValue);
    }
 
+   public CompletableFuture<Void> startAsync() {
+      createExecutorService();
+      return CompletableFuture.runAsync(start, asyncExecutorService);
+   }
+
+   public CompletableFuture<Void> stopAsync() {
+      createExecutorService();
+      return CompletableFuture.runAsync(stop, asyncExecutorService);
+   }
+
    @Override
    public void start() {
-      // Workaround for JDK6 NPE: http://bugs.sun.com/view_bug.do?bug_id=6427854
-      SecurityActions.setProperty("sun.nio.ch.bugLevel", "\"\"");
-
       transportFactory = Util.getInstance(configuration.transportFactory());
 
       if (marshaller == null) {
@@ -187,16 +207,12 @@ public class RemoteCacheManager implements RemoteCacheContainer {
 
       codec = CodecFactory.getCodec(configuration.version());
 
-      if (asyncExecutorService == null) {
-         ExecutorFactory executorFactory = configuration.asyncExecutorFactory().factory();
-         if (executorFactory == null) {
-            executorFactory = Util.getInstance(configuration.asyncExecutorFactory().factoryClass());
-         }
-         asyncExecutorService = executorFactory.getExecutor(configuration.asyncExecutorFactory().properties());
-      }
+      createExecutorService();
 
-      listenerNotifier = ClientListenerNotifier.create(codec, marshaller, transportFactory);
-      transportFactory.start(codec, configuration, defaultCacheTopologyId, listenerNotifier);
+      listenerNotifier = ClientListenerNotifier.create(codec, marshaller, transportFactory, configuration.serialWhitelist());
+      transportFactory.start(codec, configuration, defaultCacheTopologyId, listenerNotifier,
+            asList(listenerNotifier::failoverClientListeners, counterManager));
+      counterManager.start(transportFactory, codec, configuration, asyncExecutorService);
 
       synchronized (cacheName2RemoteCache) {
          for (RemoteCacheHolder rcc : cacheName2RemoteCache.values()) {
@@ -212,7 +228,17 @@ public class RemoteCacheManager implements RemoteCacheContainer {
       started = true;
    }
 
-   private final void warnAboutUberJarDuplicates() {
+   private void createExecutorService() {
+      if (asyncExecutorService == null) {
+         ExecutorFactory executorFactory = configuration.asyncExecutorFactory().factory();
+         if (executorFactory == null) {
+            executorFactory = Util.getInstance(configuration.asyncExecutorFactory().factoryClass());
+         }
+         asyncExecutorService = executorFactory.getExecutor(configuration.asyncExecutorFactory().properties());
+      }
+   }
+
+   private void warnAboutUberJarDuplicates() {
       UberJarDuplicatedJarsWarner scanner = new ManifestUberJarDuplicatedJarsWarner();
       scanner.isClasspathCorrectAsync()
               .thenAcceptAsync(isClasspathCorrect -> {
@@ -230,6 +256,7 @@ public class RemoteCacheManager implements RemoteCacheContainer {
    public void stop() {
       if (isStarted()) {
          listenerNotifier.stop();
+         counterManager.stop();
          transportFactory.destroy();
          asyncExecutorService.shutdownNow();
       }
@@ -267,7 +294,7 @@ public class RemoteCacheManager implements RemoteCacheContainer {
          RemoteCacheKey key = new RemoteCacheKey(cacheName, forceReturnValueOverride);
          if (!cacheName2RemoteCache.containsKey(key)) {
             RemoteCacheImpl<K, V> result = createRemoteCache(cacheName);
-            RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride == null ? configuration.forceReturnValues() : forceReturnValueOverride);
+            RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride);
             startRemoteCache(rcc);
 
             PingResult pingResult = result.resolveCompatibility();
@@ -307,8 +334,9 @@ public class RemoteCacheManager implements RemoteCacheContainer {
       RemoteCacheImpl<?, ?> remoteCache = remoteCacheHolder.remoteCache;
       OperationsFactory operationsFactory = new OperationsFactory(
               transportFactory, remoteCache.getName(), remoteCacheHolder.forceReturnValue, codec, listenerNotifier,
-            asyncExecutorService, configuration.clientIntelligence());
-      remoteCache.init(marshaller, asyncExecutorService, operationsFactory, configuration.keySizeEstimate(), configuration.valueSizeEstimate());
+            asyncExecutorService, configuration);
+      remoteCache.init(marshaller, asyncExecutorService, operationsFactory, configuration.keySizeEstimate(),
+            configuration.valueSizeEstimate(), configuration.batchSize());
    }
 
    @Override
@@ -326,43 +354,71 @@ public class RemoteCacheManager implements RemoteCacheContainer {
       return HotRodConstants.DEFAULT_CACHE_NAME_BYTES;
    }
 
-}
-
-class RemoteCacheKey {
-
-   final String cacheName;
-   final boolean forceReturnValue;
-
-   RemoteCacheKey(String cacheName, boolean forceReturnValue) {
-      this.cacheName = cacheName;
-      this.forceReturnValue = forceReturnValue;
+   public RemoteCacheManagerAdmin administration() {
+      OperationsFactory operationsFactory = new OperationsFactory(transportFactory, codec, asyncExecutorService, configuration);
+      return new RemoteCacheManagerAdminImpl(this, operationsFactory, EnumSet.noneOf(CacheContainerAdmin.AdminFlag.class),
+            name -> {
+               synchronized (cacheName2RemoteCache) {
+                  // Remove any mappings
+                  cacheName2RemoteCache.remove(new RemoteCacheKey(name, true));
+                  cacheName2RemoteCache.remove(new RemoteCacheKey(name, false));
+               }
+            });
    }
 
    @Override
-   public boolean equals(Object o) {
-      if (this == o) return true;
-      if (!(o instanceof RemoteCacheKey)) return false;
-
-      RemoteCacheKey that = (RemoteCacheKey) o;
-
-      if (forceReturnValue != that.forceReturnValue) return false;
-      return !(cacheName != null ? !cacheName.equals(that.cacheName) : that.cacheName != null);
+   public void close() throws IOException {
+      stop();
    }
 
-   @Override
-   public int hashCode() {
-      int result = cacheName != null ? cacheName.hashCode() : 0;
-      result = 31 * result + (forceReturnValue ? 1 : 0);
-      return result;
+   CounterManager getCounterManager() {
+      return counterManager;
    }
-}
 
-class RemoteCacheHolder {
-   final RemoteCacheImpl<?, ?> remoteCache;
-   final boolean forceReturnValue;
+   public TransportFactory getTransportFactory() {
+      return transportFactory;
+   }
 
-   RemoteCacheHolder(RemoteCacheImpl<?, ?> remoteCache, boolean forceReturnValue) {
-      this.remoteCache = remoteCache;
-      this.forceReturnValue = forceReturnValue;
+   public Codec getCodec() {
+      return codec;
+   }
+
+   private static class RemoteCacheKey {
+
+      final String cacheName;
+      final boolean forceReturnValue;
+
+      RemoteCacheKey(String cacheName, boolean forceReturnValue) {
+         this.cacheName = cacheName;
+         this.forceReturnValue = forceReturnValue;
+      }
+
+      @Override
+      public boolean equals(Object o) {
+         if (this == o) return true;
+         if (!(o instanceof RemoteCacheKey)) return false;
+
+         RemoteCacheKey that = (RemoteCacheKey) o;
+
+         if (forceReturnValue != that.forceReturnValue) return false;
+         return !(cacheName != null ? !cacheName.equals(that.cacheName) : that.cacheName != null);
+      }
+
+      @Override
+      public int hashCode() {
+         int result = cacheName != null ? cacheName.hashCode() : 0;
+         result = 31 * result + (forceReturnValue ? 1 : 0);
+         return result;
+      }
+   }
+
+   private static class RemoteCacheHolder {
+      final RemoteCacheImpl<?, ?> remoteCache;
+      final boolean forceReturnValue;
+
+      RemoteCacheHolder(RemoteCacheImpl<?, ?> remoteCache, boolean forceReturnValue) {
+         this.remoteCache = remoteCache;
+         this.forceReturnValue = forceReturnValue;
+      }
    }
 }

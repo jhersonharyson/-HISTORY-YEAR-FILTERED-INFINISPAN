@@ -48,18 +48,20 @@ public class Configuration {
    private final int maxRetries;
    private final NearCacheConfiguration nearCache;
    private final List<ClusterConfiguration> clusters;
+   private final List<String> serialWhitelist;
+   private final int batchSize;
 
    Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Class<? extends FailoverRequestBalancingStrategy> balancingStrategyClass, FailoverRequestBalancingStrategy balancingStrategy, ClassLoader classLoader,
          ClientIntelligence clientIntelligence, ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate,
          Marshaller marshaller, Class<? extends Marshaller> marshallerClass,
          ProtocolVersion protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
          Class<? extends TransportFactory> transportFactory, int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
-         List<ClusterConfiguration> clusters) {
+         List<ClusterConfiguration> clusters, List<String> serialWhitelist, int batchSize) {
       this.asyncExecutorFactory = asyncExecutorFactory;
       this.balancingStrategyClass = balancingStrategyClass;
       this.balancingStrategy = balancingStrategy;
       this.maxRetries = maxRetries;
-      this.classLoader = new WeakReference<ClassLoader>(classLoader);
+      this.classLoader = new WeakReference<>(classLoader);
       this.clientIntelligence = clientIntelligence;
       this.connectionPool = connectionPool;
       this.connectionTimeout = connectionTimeout;
@@ -78,6 +80,8 @@ public class Configuration {
       this.valueSizeEstimate = valueSizeEstimate;
       this.nearCache = nearCache;
       this.clusters = clusters;
+      this.serialWhitelist = serialWhitelist;
+      this.batchSize = batchSize;
    }
 
    public ExecutorFactoryConfiguration asyncExecutorFactory() {
@@ -185,6 +189,14 @@ public class Configuration {
       return maxRetries;
    }
 
+   public List<String> serialWhitelist() {
+      return serialWhitelist;
+   }
+
+   public int batchSize() {
+      return batchSize;
+   }
+
    @Override
    public String toString() {
       return "Configuration [asyncExecutorFactory=" + asyncExecutorFactory + ", balancingStrategyClass=" + balancingStrategyClass + ", balancingStrategy=" + balancingStrategy
@@ -193,6 +205,8 @@ public class Configuration {
             + forceReturnValues + ", keySizeEstimate=" + keySizeEstimate + ", marshallerClass=" + marshallerClass + ", marshaller=" + marshaller + ", protocolVersion="
             + protocolVersion + ", servers=" + servers + ", socketTimeout=" + socketTimeout + ", security=" + security + ", tcpNoDelay=" + tcpNoDelay + ", tcpKeepAlive=" + tcpKeepAlive
             + ", transportFactory=" + transportFactory + ", valueSizeEstimate=" + valueSizeEstimate + ", maxRetries=" + maxRetries
+            + ", serialWhiteList=" + serialWhitelist
+            + ", batchSize=" + batchSize
             + "nearCache=" + nearCache + "]";
    }
 
@@ -294,6 +308,10 @@ public class Configuration {
 
       for (Map.Entry<String, String> entry : security.authentication().saslProperties().entrySet())
          properties.setProperty(ConfigurationProperties.SASL_PROPERTIES_PREFIX + '.' + entry.getKey(), entry.getValue());
+
+      properties.setProperty(ConfigurationProperties.JAVA_SERIAL_WHITELIST, String.join(",", serialWhitelist));
+
+      properties.setProperty(ConfigurationProperties.BATCH_SIZE, Integer.toString(batchSize));
 
       return properties;
    }

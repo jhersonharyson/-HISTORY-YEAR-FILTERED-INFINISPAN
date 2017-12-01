@@ -42,7 +42,7 @@ import org.infinispan.query.dsl.embedded.testdomain.Address;
 import org.infinispan.query.dsl.embedded.testdomain.User;
 import org.infinispan.query.remote.client.FilterResult;
 import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
-import org.infinispan.query.remote.impl.filter.JPACacheEventFilterConverterFactory;
+import org.infinispan.query.remote.impl.filter.IckleCacheEventFilterConverterFactory;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.Test;
@@ -68,16 +68,16 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
 
       // Register the filter/converter factory. This should normally be discovered by the server via class path instead
       // of being added manually here, but this is ok in a test.
-      JPACacheEventFilterConverterFactory factory = new JPACacheEventFilterConverterFactory();
+      IckleCacheEventFilterConverterFactory factory = new IckleCacheEventFilterConverterFactory();
       for (int i = 0; i < NUM_NODES; i++) {
-         server(i).addCacheEventFilterConverterFactory(JPACacheEventFilterConverterFactory.FACTORY_NAME, factory);
+         server(i).addCacheEventFilterConverterFactory(IckleCacheEventFilterConverterFactory.FACTORY_NAME, factory);
       }
 
       remoteCache = client(0).getCache();
 
       //initialize server-side serialization context
       RemoteCache<String, String> metadataCache = client(0).getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
-      metadataCache.put("sample_bank_account/bank.proto", Util.read(Util.getResourceAsStream("/sample_bank_account/bank.proto", getClass().getClassLoader())));
+      metadataCache.put("sample_bank_account/bank.proto", Util.getResourceAsString("/sample_bank_account/bank.proto", getClass().getClassLoader()));
       assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
 
       //initialize client-side serialization context
@@ -87,7 +87,7 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder cfgBuilder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
       cfgBuilder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "ram")
+            .addProperty("default.directory_provider", "local-heap")
             .addProperty("lucene_version", "LUCENE_CURRENT");
       return cfgBuilder;
    }
@@ -98,7 +98,7 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
             .marshaller(new ProtoStreamMarshaller());
    }
 
-   public void testEventFilter() throws Exception {
+   public void testEventFilter() {
       User user1 = new UserPB();
       user1.setId(1);
       user1.setName("John");
@@ -166,7 +166,7 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
       remoteCache.removeClientListener(listener);
    }
 
-   public void testEventFilterChangingParameter() throws Exception {
+   public void testEventFilterChangingParameter() {
       User user1 = new UserPB();
       user1.setId(1);
       user1.setName("John");
@@ -327,7 +327,7 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
 
       @ClientCacheEntryCreated
       public void handleClientCacheEntryCreatedEvent(ClientCacheEntryCustomEvent event) throws IOException {
-         FilterResult r = (FilterResult) ProtobufUtil.fromWrappedByteArray(serializationContext, (byte[]) event.getEventData());
+         FilterResult r = ProtobufUtil.fromWrappedByteArray(serializationContext, (byte[]) event.getEventData());
          createEvents.add(r);
 
          log.debugf("handleClientCacheEntryCreatedEvent instance=%s projection=%s sortProjection=%s\n",
@@ -338,7 +338,7 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
 
       @ClientCacheEntryModified
       public void handleClientCacheEntryModifiedEvent(ClientCacheEntryCustomEvent event) throws IOException {
-         FilterResult r = (FilterResult) ProtobufUtil.fromWrappedByteArray(serializationContext, (byte[]) event.getEventData());
+         FilterResult r = ProtobufUtil.fromWrappedByteArray(serializationContext, (byte[]) event.getEventData());
          modifyEvents.add(r);
 
          log.debugf("handleClientCacheEntryModifiedEvent instance=%s projection=%s sortProjection=%s\n",

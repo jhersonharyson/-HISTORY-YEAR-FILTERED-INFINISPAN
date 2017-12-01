@@ -166,6 +166,16 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    }
 
    @Override
+   public ConfigurationBuilder addJavaSerialWhiteList(String... regExs) {
+      return builder.addJavaSerialWhiteList(regExs);
+   }
+
+   @Override
+   public ConfigurationBuilder batchSize(int batchSize) {
+      return builder.batchSize(batchSize);
+   }
+
+   @Override
    public ConfigurationBuilder withProperties(Properties properties) {
       return builder.withProperties(properties);
    }

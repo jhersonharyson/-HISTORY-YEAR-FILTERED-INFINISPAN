@@ -12,7 +12,6 @@ import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.Search;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
-import org.infinispan.commons.equivalence.ByteArrayEquivalence;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.FileDescriptorSource;
@@ -27,13 +26,14 @@ import org.infinispan.query.dsl.QueryFactory;
 import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
 
 /**
- * Tests for remote queries over HotRod on a local cache using RAM directory.
+ * Tests for remote queries over HotRod using protostream annotations on a local cache using RAM directory.
  *
  * @author Adrian Nistor
  */
-@org.testng.annotations.Test(testName = "client.hotrod.query.RemoteQueryWithProtostreamAnnotationsTest", groups = "functional")
+@Test(testName = "client.hotrod.query.RemoteQueryWithProtostreamAnnotationsTest", groups = "functional")
 public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServerTest {
 
    @ProtoDoc("@Indexed")
@@ -46,7 +46,7 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
 
       private Author author;
 
-      @ProtoDoc("@IndexedField(index = false, store=false)")
+      @ProtoDoc("@Field(index = Index.NO, store = Store.NO)")
       @ProtoField(number = 10, required = true)
       public int getId() {
          return id;
@@ -113,14 +113,11 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       org.infinispan.configuration.cache.ConfigurationBuilder builder = new org.infinispan.configuration.cache.ConfigurationBuilder();
-      builder.dataContainer()
-            .keyEquivalence(ByteArrayEquivalence.INSTANCE)
-            .valueEquivalence(ByteArrayEquivalence.INSTANCE)
-            .indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "ram")
+      builder.indexing().index(Index.ALL)
+            .addProperty("default.directory_provider", "local-heap")
             .addProperty("lucene_version", "LUCENE_CURRENT");
 
-      return TestCacheManagerFactory.createCacheManager(builder);
+      return TestCacheManagerFactory.createServerModeCacheManager(builder);
    }
 
    @Override

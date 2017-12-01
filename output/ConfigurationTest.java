@@ -11,9 +11,11 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STOR
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_FILE_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_PASSWORD;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.MAX_RETRIES;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.PROTOCOL_VERSION;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.REQUEST_BALANCING_STRATEGY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_MECHANISM;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_PROPERTIES_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JAVA_SERIAL_WHITELIST;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SERVER_LIST;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SNI_HOST_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SO_TIMEOUT;
@@ -28,10 +30,15 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_AUTH
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_SSL;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.VALUE_SIZE_ESTIMATE;
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertTrue;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.function.Function;
@@ -40,15 +47,22 @@ import javax.net.ssl.SSLContext;
 import javax.security.auth.Subject;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
+import javax.security.auth.callback.NameCallback;
+import javax.security.auth.callback.UnsupportedCallbackException;
 
+import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.SomeAsyncExecutorFactory;
 import org.infinispan.client.hotrod.SomeCustomConsistentHashV2;
 import org.infinispan.client.hotrod.SomeRequestBalancingStrategy;
 import org.infinispan.client.hotrod.SomeTransportfactory;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.impl.transport.tcp.SaslTransportObjectFactory;
+import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
+import org.infinispan.client.hotrod.security.BasicCallbackHandler;
 import org.infinispan.commons.CacheConfigurationException;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.testng.annotations.Test;
+
 @Test(testName = "client.hotrod.configuration.ConfigurationTest", groups = "functional" )
 public class ConfigurationTest {
 
@@ -72,6 +86,7 @@ public class ConfigurationTest {
       OPTIONS.put("testOnReturn", c -> c.connectionPool().testOnReturn());
       OPTIONS.put("testWhileIdle", c -> c.connectionPool().testWhileIdle());
       OPTIONS.put(CONNECT_TIMEOUT, Configuration::connectionTimeout);
+      OPTIONS.put(PROTOCOL_VERSION, Configuration::version);
       OPTIONS.put(SO_TIMEOUT, Configuration::socketTimeout);
       OPTIONS.put(TCP_NO_DELAY, Configuration::tcpNoDelay);
       OPTIONS.put(TCP_KEEP_ALIVE, Configuration::tcpKeepAlive);
@@ -95,6 +110,7 @@ public class ConfigurationTest {
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".A", c -> c.security().authentication().saslProperties().get("A"));
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".B", c -> c.security().authentication().saslProperties().get("B"));
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".C", c -> c.security().authentication().saslProperties().get("C"));
+      OPTIONS.put(JAVA_SERIAL_WHITELIST, Configuration::serialWhitelist);
 
       TYPES.put(Boolean.class, b -> Boolean.toString((Boolean) b));
       TYPES.put(ExhaustedAction.class, e -> Integer.toString(((ExhaustedAction) e).ordinal()));
@@ -105,6 +121,16 @@ public class ConfigurationTest {
       TYPES.put(SSLContext.class, s -> s);
       TYPES.put(MyCallbackHandler.class, c -> c);
       TYPES.put(Subject.class, s -> s);
+      TYPES.put(ProtocolVersion.class, p -> p.toString());
+      TYPES.put(mkClass(), l -> String.join(",", (List<String>) l));
+   }
+
+   private static Class<?> mkClass() {
+      try {
+         return Class.forName("java.util.Arrays$ArrayList");
+      } catch (ClassNotFoundException e) {
+         throw new RuntimeException(e);
+      }
    }
 
    CallbackHandler callbackHandler = new MyCallbackHandler();
@@ -146,6 +172,7 @@ public class ConfigurationTest {
             .minEvictableIdleTime(12000)
             .timeBetweenEvictionRuns(15000)
          .connectionTimeout(100)
+         .version(ProtocolVersion.PROTOCOL_VERSION_13)
          .consistentHashImpl(2, SomeCustomConsistentHashV2.class)
          .socketTimeout(100)
          .tcpNoDelay(false)
@@ -170,7 +197,8 @@ public class ConfigurationTest {
                .callbackHandler(callbackHandler)
                .serverName("my-server-name")
                .clientSubject(clientSubject)
-               .saslProperties(saslProperties);
+               .saslProperties(saslProperties)
+         .addJavaSerialWhiteList(".*Person.*", ".*Employee.*");
 
       Configuration configuration = builder.build();
       validateConfiguration(configuration);
@@ -202,6 +230,7 @@ public class ConfigurationTest {
       p.setProperty("testOnReturn", "true");
       p.setProperty("testWhileIdle", "false");
       p.setProperty(CONNECT_TIMEOUT, "100");
+      p.setProperty(PROTOCOL_VERSION, "1.3");
       p.setProperty(SO_TIMEOUT, "100");
       p.setProperty(TCP_NO_DELAY, "false");
       p.setProperty(TCP_KEEP_ALIVE, "true");
@@ -223,6 +252,7 @@ public class ConfigurationTest {
       p.setProperty(SASL_PROPERTIES_PREFIX + ".A", "1");
       p.setProperty(SASL_PROPERTIES_PREFIX + ".B", "2");
       p.setProperty(SASL_PROPERTIES_PREFIX + ".C", "3");
+      p.setProperty(JAVA_SERIAL_WHITELIST, ".*Person.*,.*Employee.*");
 
       Configuration configuration = builder.withProperties(p).build();
       validateConfiguration(configuration);
@@ -315,6 +345,55 @@ public class ConfigurationTest {
       assertServer("ff01::1", ConfigurationProperties.DEFAULT_HOTROD_PORT, cfg.servers().get(3));
       assertServer("localhost", ConfigurationProperties.DEFAULT_HOTROD_PORT, cfg.servers().get(4));
       assertServer("localhost", 8382, cfg.servers().get(5));
+   }
+
+   public void testPropertyReplacement() throws IOException, UnsupportedCallbackException {
+      System.setProperty("test.property.server_list","myhost:12345");
+      System.setProperty("test.property.marshaller", "org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller");
+      System.setProperty("test.property.tcp_no_delay", "false");
+      System.setProperty("test.property.tcp_keep_alive", "true");
+      System.setProperty("test.property.key_size_estimate", "128");
+      System.setProperty("test.property.value_size_estimate", "256");
+      System.setProperty("test.property.maxTotal", "79");
+      System.setProperty("test.property.maxActive", "78");
+      System.setProperty("test.property.maxIdle", "77");
+      System.setProperty("test.property.minIdle", "76");
+      System.setProperty("test.property.timeBetweenEvictionRunsMillis", "1000");
+      System.setProperty("test.property.minEvictableIdleTimeMillis", "2000");
+      System.setProperty("test.property.testWhileIdle", "true");
+      System.setProperty("test.property.use_auth", "true");
+      System.setProperty("test.property.auth_username", "testuser");
+      System.setProperty("test.property.auth_password", "testpassword");
+      System.setProperty("test.property.auth_realm", "testrealm");
+      System.setProperty("test.property.sasl_mechanism", "PLAIN");
+
+
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      Properties p = new Properties();
+      InputStream inputStream = FileLookupFactory.newInstance().lookupFile("hotrod-client-replacement.properties", this.getClass().getClassLoader());
+      p.load(inputStream);
+      builder.withProperties(p);
+      Configuration cfg = builder.build();
+      assertServer("myhost", 12345, cfg.servers().get(0));
+      assertEquals(ProtoStreamMarshaller.class, cfg.marshallerClass());
+      assertFalse(cfg.tcpNoDelay());
+      assertTrue(cfg.tcpKeepAlive());
+      assertEquals(128, cfg.keySizeEstimate());
+      assertEquals(256, cfg.valueSizeEstimate());
+      assertEquals(79, cfg.connectionPool().maxTotal());
+      assertEquals(78, cfg.connectionPool().maxActive());
+      assertEquals(77, cfg.connectionPool().maxIdle());
+      assertEquals(76, cfg.connectionPool().minIdle());
+      assertEquals(1000, cfg.connectionPool().timeBetweenEvictionRuns());
+      assertEquals(2000, cfg.connectionPool().minEvictableIdleTime());
+      assertTrue(cfg.connectionPool().testWhileIdle());
+      assertTrue(cfg.security().authentication().enabled());
+      assertEquals("PLAIN", cfg.security().authentication().saslMechanism());
+      CallbackHandler callbackHandler = cfg.security().authentication().callbackHandler();
+      assertEquals(BasicCallbackHandler.class, callbackHandler.getClass());
+      NameCallback nameCallback = new NameCallback("name");
+      callbackHandler.handle(new Callback[] { nameCallback });
+      assertEquals("testuser", nameCallback.getName());
    }
 
    @Test(expectedExceptions = CacheConfigurationException.class,
@@ -436,6 +515,8 @@ public class ConfigurationTest {
       assertEqualsConfig("1", SASL_PROPERTIES_PREFIX + ".A", configuration);
       assertEqualsConfig("2", SASL_PROPERTIES_PREFIX + ".B", configuration);
       assertEqualsConfig("3", SASL_PROPERTIES_PREFIX + ".C", configuration);
+      assertEqualsConfig(ProtocolVersion.PROTOCOL_VERSION_13, PROTOCOL_VERSION, configuration);
+      assertEqualsConfig(Arrays.asList(".*Person.*", ".*Employee.*"), JAVA_SERIAL_WHITELIST, configuration);
    }
 
    private void validateSSLContextConfiguration(Configuration configuration) {

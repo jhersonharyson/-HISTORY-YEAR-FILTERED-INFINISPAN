@@ -12,13 +12,14 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.context.InvocationContext;
-import org.infinispan.interceptors.base.CommandInterceptor;
+import org.infinispan.interceptors.BaseAsyncInterceptor;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.CacheContainer;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -37,8 +38,8 @@ import org.testng.annotations.BeforeMethod;
  */
 public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTest {
 
-   protected Map<SocketAddress, HotRodServer> addr2hrServer = new LinkedHashMap<SocketAddress, HotRodServer>();
-   protected List<RemoteCacheManager> clients = new ArrayList<RemoteCacheManager>();
+   protected Map<SocketAddress, HotRodServer> addr2hrServer = new LinkedHashMap<>();
+   protected List<RemoteCacheManager> clients = new ArrayList<>();
 
    protected void createHotRodServers(int num, ConfigurationBuilder defaultBuilder) {
       // Start Hot Rod servers
@@ -115,18 +116,7 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
    }
 
    protected HitCountInterceptor getHitCountInterceptor(Cache<?, ?> cache) {
-      HitCountInterceptor hitCountInterceptor = null;
-      List<CommandInterceptor> interceptorChain = cache.getAdvancedCache().getInterceptorChain();
-      for (CommandInterceptor interceptor : interceptorChain) {
-         boolean isHitCountInterceptor = interceptor instanceof HitCountInterceptor;
-         if (hitCountInterceptor != null && isHitCountInterceptor) {
-            throw new IllegalStateException("Two HitCountInterceptors! " + interceptorChain);
-         }
-         if (isHitCountInterceptor) {
-            hitCountInterceptor = (HitCountInterceptor) interceptor;
-         }
-      }
-      return hitCountInterceptor;
+      return cache.getAdvancedCache().getAsyncInterceptorChain().findInterceptorWithClass(HitCountInterceptor.class);
    }
 
    protected void assertOnlyServerHit(SocketAddress serverAddress) {
@@ -159,7 +149,7 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
    }
 
    protected InetSocketAddress getAddress(HotRodServer hotRodServer) {
-      InetSocketAddress socketAddress = new InetSocketAddress(hotRodServer.getHost(), hotRodServer.getPort());
+      InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(hotRodServer.getHost(), hotRodServer.getPort());
       addr2hrServer.put(socketAddress, hotRodServer);
       return socketAddress;
    }
@@ -184,7 +174,7 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
 
    private void addHitCountInterceptor(Cache<?, ?> cache) {
       HitCountInterceptor interceptor = new HitCountInterceptor();
-      cache.getAdvancedCache().addInterceptor(interceptor, 1);
+      cache.getAdvancedCache().getAsyncInterceptorChain().addInterceptor(interceptor, 1);
    }
 
    @AfterClass(alwaysRun = true)
@@ -197,26 +187,26 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
     * @author Mircea.Markus@jboss.com
     * @since 4.1
     */
-   public static class HitCountInterceptor extends CommandInterceptor{
+   public static class HitCountInterceptor extends BaseAsyncInterceptor{
       private static final Log log = LogFactory.getLog(HitCountInterceptor.class);
 
-      private volatile int invocationCount;
+      private final AtomicInteger invocationCount = new AtomicInteger(0);
 
       @Override
-      protected Object handleDefault(InvocationContext ctx, VisitableCommand command) throws Throwable {
+      public Object visitCommand(InvocationContext ctx, VisitableCommand command) throws Throwable {
          if (ctx.isOriginLocal()) {
-            log.infof("Increment hit count after being visited by %s", command);
-            invocationCount ++;
+            int count = invocationCount.incrementAndGet();
+            log.infof("Hit %d for %s", count, command);
          }
-         return super.handleDefault(ctx, command);
+         return invokeNext(ctx, command);
       }
 
       public int getHits() {
-         return invocationCount;
+         return invocationCount.get();
       }
 
       public void reset() {
-         invocationCount = 0;
+         invocationCount.set(0);
       }
    }
 }

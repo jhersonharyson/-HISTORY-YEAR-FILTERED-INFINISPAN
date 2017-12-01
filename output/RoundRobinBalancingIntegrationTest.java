@@ -49,11 +49,6 @@ public class RoundRobinBalancingIntegrationTest extends MultipleCacheManagersTes
    private RemoteCacheManager remoteCacheManager;
 
    @Override
-   protected void assertSupportedConfig() {
-      return;
-   }
-
-   @Override
    protected void createCacheManagers() throws Throwable {
       c1 = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration()).getCache();
       c2 = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration()).getCache();
@@ -114,11 +109,11 @@ public class RoundRobinBalancingIntegrationTest extends MultipleCacheManagersTes
       hotRodServer4 = HotRodClientTestingUtil.startHotRodServer(c4.getCacheManager());
       registerCacheManager(c4.getCacheManager());
 
-      List<SocketAddress> serverAddresses = new ArrayList<SocketAddress>();
-      serverAddresses.add(new InetSocketAddress("localhost", hotRodServer1.getPort()));
-      serverAddresses.add(new InetSocketAddress("localhost", hotRodServer2.getPort()));
-      serverAddresses.add(new InetSocketAddress("localhost", hotRodServer3.getPort()));
-      serverAddresses.add(new InetSocketAddress("localhost", hotRodServer4.getPort()));
+      List<SocketAddress> serverAddresses = new ArrayList<>();
+      serverAddresses.add(InetSocketAddress.createUnresolved("localhost", hotRodServer1.getPort()));
+      serverAddresses.add(InetSocketAddress.createUnresolved("localhost", hotRodServer2.getPort()));
+      serverAddresses.add(InetSocketAddress.createUnresolved("localhost", hotRodServer3.getPort()));
+      serverAddresses.add(InetSocketAddress.createUnresolved("localhost", hotRodServer4.getPort()));
 
       RoundRobinBalancingStrategy balancer = getBalancer();
       balancer.setServers(serverAddresses);
@@ -184,9 +179,9 @@ public class RoundRobinBalancingIntegrationTest extends MultipleCacheManagersTes
 
    @Test(dependsOnMethods = "testStopServer")
    public void testRemoveServers() {
-      List<SocketAddress> serverAddresses = new ArrayList<SocketAddress>();
-      serverAddresses.add(new InetSocketAddress("localhost", hotRodServer1.getPort()));
-      serverAddresses.add(new InetSocketAddress("localhost", hotRodServer2.getPort()));
+      List<SocketAddress> serverAddresses = new ArrayList<>();
+      serverAddresses.add(InetSocketAddress.createUnresolved("localhost", hotRodServer1.getPort()));
+      serverAddresses.add(InetSocketAddress.createUnresolved("localhost", hotRodServer2.getPort()));
 
       RoundRobinBalancingStrategy balancer = getBalancer();
       balancer.setServers(serverAddresses);

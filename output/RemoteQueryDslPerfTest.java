@@ -19,7 +19,6 @@ import org.infinispan.client.hotrod.marshall.EmbeddedUserMarshaller;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.MarshallerRegistration;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
-import org.infinispan.commons.equivalence.AnyEquivalence;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.Index;
@@ -45,7 +44,7 @@ import org.testng.annotations.Test;
  * @author anistor@redhat.com
  * @since 7.2
  */
-@Test(groups = "stress", testName = "client.hotrod.stress.RemoteQueryDslPerfTest")
+@Test(groups = "stress", testName = "client.hotrod.stress.RemoteQueryDslPerfTest", timeOut = 15*60*1000)
 public class RemoteQueryDslPerfTest extends MultipleCacheManagersTest {
 
    protected HotRodServer hotRodServer;
@@ -62,9 +61,8 @@ public class RemoteQueryDslPerfTest extends MultipleCacheManagersTest {
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder builder = hotRodCacheConfiguration();
       builder.compatibility().enable().marshaller(new CompatibilityProtoStreamMarshaller());
-      builder.dataContainer().keyEquivalence(AnyEquivalence.getInstance());
       builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "ram")
+            .addProperty("default.directory_provider", "local-heap")
             .addProperty("lucene_version", "LUCENE_CURRENT");
       createClusteredCaches(1, builder);
 
@@ -80,7 +78,7 @@ public class RemoteQueryDslPerfTest extends MultipleCacheManagersTest {
 
       //initialize server-side serialization context
       ProtobufMetadataManager protobufMetadataManager = manager(0).getGlobalComponentRegistry().getComponent(ProtobufMetadataManager.class);
-      protobufMetadataManager.registerProtofile("sample_bank_account/bank.proto", Util.read(Util.getResourceAsStream("/sample_bank_account/bank.proto", getClass().getClassLoader())));
+      protobufMetadataManager.registerProtofile("sample_bank_account/bank.proto", Util.getResourceAsString("/sample_bank_account/bank.proto", getClass().getClassLoader()));
       assertNull(protobufMetadataManager.getFileErrors("sample_bank_account/bank.proto"));
       assertNull(protobufMetadataManager.getFilesWithErrors());
       protobufMetadataManager.registerMarshaller(new EmbeddedUserMarshaller());

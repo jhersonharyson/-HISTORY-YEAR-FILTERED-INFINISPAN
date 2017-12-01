@@ -6,7 +6,6 @@ import static org.testng.AssertJUnit.assertTrue;
 
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
-import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
@@ -47,6 +46,15 @@ public class RemoteCacheManagerTest extends SingleCacheManagerTest {
       HotRodClientTestingUtil.killRemoteCacheManager(remoteCacheManager);
    }
 
+   public void testStartStopAsync() throws Exception {
+      remoteCacheManager = new RemoteCacheManager(false);
+
+      remoteCacheManager.startAsync().get();
+      assertTrue(remoteCacheManager.isStarted());
+
+      remoteCacheManager.stopAsync().get();
+      assertFalse(remoteCacheManager.isStarted());
+   }
    public void testNoArgConstructor() {
       remoteCacheManager = new RemoteCacheManager();
       assertTrue(remoteCacheManager.isStarted());
@@ -66,30 +74,5 @@ public class RemoteCacheManagerTest extends SingleCacheManagerTest {
             .port(port);
       remoteCacheManager = new RemoteCacheManager(builder.build());
       assertTrue(remoteCacheManager.isStarted());
-   }
-
-   public void testGetUndefinedCache() {
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
-            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
-      clientBuilder.addServer().host("localhost").port(port);
-      remoteCacheManager = new RemoteCacheManager(clientBuilder.build(), false);
-      assert !remoteCacheManager.isStarted();
-      remoteCacheManager.start();
-      assert null == remoteCacheManager.getCache("Undefined1234");
-   }
-
-   private void assertWorks(RemoteCacheManager remoteCacheManager) {
-      RemoteCache<Object, Object> cache = remoteCacheManager.getCache();
-      cache.put("aKey", "aValue");
-      assert cache.get("aKey").equals("aValue");
-   }
-
-   public void testMarshallerInstance() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.addServer().host("127.0.0.1").port(port);
-      GenericJBossMarshaller marshaller = new GenericJBossMarshaller();
-      builder.marshaller(marshaller);
-      remoteCacheManager = new RemoteCacheManager(builder.build());
-      assertTrue(marshaller == remoteCacheManager.getMarshaller());
    }
 }

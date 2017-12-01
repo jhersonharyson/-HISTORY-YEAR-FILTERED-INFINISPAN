@@ -19,7 +19,7 @@ import org.testng.annotations.Test;
  * @author Kevin Pollet <kevin.pollet@serli.com> (C) 2011 SERLI
  * @see Config
  */
-@Test(groups = "functional", testName = "cdi.test.cache.embedded.configured.ConfiguredCacheTest")
+@Test(groups = {"functional", "smoke"}, testName = "cdi.test.cache.embedded.configured.ConfiguredCacheTest")
 public class ConfiguredCacheTest extends Arquillian {
 
    @Deployment
@@ -39,11 +39,11 @@ public class ConfiguredCacheTest extends Arquillian {
 
    public void testTinyCache() {
       // Check that we have the correctly configured cache
-      assertEquals(tinyCache.getCacheConfiguration().eviction().maxEntries(), 1);
+      assertEquals(tinyCache.getCacheConfiguration().memory().size(), 1);
    }
 
    public void testSmallCache() {
       // Check that we have the correctly configured cache
-      assertEquals(smallCache.getCacheConfiguration().eviction().maxEntries(), 10);
+      assertEquals(smallCache.getCacheConfiguration().memory().size(), 10);
    }
 }

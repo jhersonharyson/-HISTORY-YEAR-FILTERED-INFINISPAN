@@ -10,9 +10,9 @@ import static org.infinispan.query.dsl.Expression.param;
 import static org.infinispan.query.dsl.Expression.sum;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertTrue;
+import static org.testng.AssertJUnit.fail;
 
 import java.io.IOException;
 import java.util.List;
@@ -48,6 +48,7 @@ import org.testng.annotations.Test;
 
 /**
  * Test for query conditions (filtering). Exercises the whole query DSL on the sample domain model.
+ * Uses Protobuf marshalling and Protobuf doc annotations for configuring indexing.
  *
  * @author anistor@redhat.com
  * @since 6.0
@@ -60,6 +61,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
          "message NotIndexed {\n" +
          "\toptional string notIndexedField = 1;\n" +
          "}\n";
+
    protected HotRodServer hotRodServer;
    protected RemoteCacheManager remoteCacheManager;
    protected RemoteCache<Object, Object> remoteCache;
@@ -87,7 +89,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder cfg = getConfigurationBuilder();
-      createClusteredCaches(1, cfg);
+      createClusteredCaches(1, cfg, true);
 
       cache = manager(0).getCache();
 
@@ -104,9 +106,9 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    protected void initProtoSchema(RemoteCacheManager remoteCacheManager) throws IOException {
       //initialize server-side serialization context
       RemoteCache<String, String> metadataCache = remoteCacheManager.getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
-      metadataCache.put("sample_bank_account/bank.proto", Util.read(Util.getResourceAsStream("/sample_bank_account/bank.proto", getClass().getClassLoader())));
-      assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
+      metadataCache.put("sample_bank_account/bank.proto", loadSchema());
       metadataCache.put("not_indexed.proto", NOT_INDEXED_PROTO_SCHEMA);
+      checkSchemaErrors(metadataCache);
 
       //initialize client-side serialization context
       SerializationContext serCtx = ProtoStreamMarshaller.getSerializationContext(remoteCacheManager);
@@ -115,10 +117,30 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
       serCtx.registerMarshaller(new NotIndexedMarshaller());
    }
 
+   protected String loadSchema() throws IOException {
+      return Util.getResourceAsString("/sample_bank_account/bank.proto", getClass().getClassLoader());
+   }
+
+   /**
+    * Logs the Protobuf schema errors (if any) and fails the test appropriately.
+    */
+   protected void checkSchemaErrors(RemoteCache<String, String> metadataCache) {
+      if (metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX)) {
+         // The existence of this key indicates there are errors in some files
+         String files = metadataCache.get(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX);
+         for (String fname : files.split("\n")) {
+            String errorKey = fname + ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX;
+            log.errorf("Found errors in Protobuf schema file: %s\n%s\n", fname, metadataCache.get(errorKey));
+         }
+
+         fail("There are errors in the following Protobuf schema files:\n" + files);
+      }
+   }
+
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = hotRodCacheConfiguration();
       builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "ram")
+            .addProperty("default.directory_provider", "local-heap")
             .addProperty("lucene_version", "LUCENE_CURRENT");
       return builder;
    }
@@ -133,7 +155,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    public void testIndexPresence() {
       SearchIntegrator searchIntegrator = org.infinispan.query.Search.getSearchManager(cache).unwrap(SearchIntegrator.class);
 
-      assertTrue(searchIntegrator.getIndexedTypes().contains(ProtobufValueWrapper.class));
+      assertTrue(searchIntegrator.getIndexBindings().containsKey(ProtobufValueWrapper.INDEXING_TYPE));
       assertNotNull(searchIntegrator.getIndexManager(ProtobufValueWrapper.class.getName()));
    }
 
@@ -144,7 +166,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
 
    @Test(expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*ISPN028503:.*")
    @Override
-   public void testInvalidEmbeddedAttributeQuery() throws Exception {
+   public void testInvalidEmbeddedAttributeQuery() {
       // the original exception gets wrapped in HotRodClientException
       super.testInvalidEmbeddedAttributeQuery();
    }
@@ -184,7 +206,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
       }
    }
 
-   public void testDefaultValue() throws Exception {
+   public void testDefaultValue() {
       QueryFactory qf = getQueryFactory();
 
       Query q = qf.from(getModelFactory().getAccountImplClass()).orderBy("description", SortOrder.ASC).build();
@@ -192,12 +214,6 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
       List<Account> list = q.list();
       assertEquals(3, list.size());
       assertEquals("Checking account", list.get(0).getDescription());
-   }
-
-   @Test(enabled = false, description = "Disabled due to https://issues.jboss.org/browse/ISPN-6713")
-   @Override
-   public void testIsNullNumericWithProjection1() throws Exception {
-      super.testIsNullNumericWithProjection1();
    }
 
    @Override
@@ -306,16 +322,16 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
       assertEquals(makeDate("2013-02-27").getTime(), list.get(0)[2]);
    }
 
-   @Test(expectedExceptions = IllegalStateException.class, expectedExceptionsMessageRegExp = "ISPN004060: Query parameter 'param2' was not set")
+   @Test(expectedExceptions = IllegalStateException.class, expectedExceptionsMessageRegExp = "ISPN014825: Query parameter 'param2' was not set")
    @Override
-   public void testMissingParamWithParameterMap() throws Exception {
+   public void testMissingParamWithParameterMap() {
       // exception message code is different because it is generated by a different logger
       super.testMissingParamWithParameterMap();
    }
 
-   @Test(expectedExceptions = IllegalStateException.class, expectedExceptionsMessageRegExp = "ISPN004060: Query parameter 'param2' was not set")
+   @Test(expectedExceptions = IllegalStateException.class, expectedExceptionsMessageRegExp = "ISPN014825: Query parameter 'param2' was not set")
    @Override
-   public void testMissingParam() throws Exception {
+   public void testMissingParam() {
       // exception message code is different because it is generated by a different logger
       super.testMissingParam();
    }

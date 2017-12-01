@@ -7,7 +7,6 @@ import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertTrue;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
@@ -20,11 +19,11 @@ import org.infinispan.client.hotrod.query.testdomain.protobuf.AddressPB;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.UserPB;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.MarshallerRegistration;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
-import org.infinispan.commons.equivalence.ByteArrayEquivalence;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
+import org.infinispan.configuration.internal.PrivateGlobalConfigurationBuilder;
 import org.infinispan.jmx.PerThreadMBeanServerLookup;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.query.dsl.Query;
@@ -45,7 +44,7 @@ import org.testng.annotations.Test;
  * @author anistor@redhat.com
  * @since 6.0
  */
-@Test(testName = "client.hotrod.query.HotRodQueryTest", groups = "functional")
+@Test(testName = "client.hotrod.query.HotRodQueryTest", groups = {"functional", "smoke"})
 public class HotRodQueryTest extends SingleCacheManagerTest {
 
    protected static final String TEST_CACHE_NAME = "userCache";
@@ -59,9 +58,9 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       GlobalConfigurationBuilder gcb = new GlobalConfigurationBuilder().nonClusteredDefault();
       gcb.globalJmxStatistics()
             .enable()
-            .allowDuplicateDomains(true)
             .jmxDomain(getClass().getSimpleName())
             .mBeanServerLookup(new PerThreadMBeanServerLookup());
+      gcb.addModule(PrivateGlobalConfigurationBuilder.class).serverMode(true);
 
       ConfigurationBuilder builder = getConfigurationBuilder();
 
@@ -80,7 +79,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
 
       //initialize server-side serialization
       RemoteCache<String, String> metadataCache = remoteCacheManager.getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
-      metadataCache.put("sample_bank_account/bank.proto", read("/sample_bank_account/bank.proto"));
+      metadataCache.put("sample_bank_account/bank.proto", Util.getResourceAsString("/sample_bank_account/bank.proto", getClass().getClassLoader()));
       assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
 
       //initialize client-side serialization context
@@ -91,16 +90,10 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
 
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.dataContainer()
-            .keyEquivalence(ByteArrayEquivalence.INSTANCE)
-            .indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "ram")
+      builder.indexing().index(Index.ALL)
+            .addProperty("default.directory_provider", "local-heap")
             .addProperty("lucene_version", "LUCENE_CURRENT");
       return builder;
-   }
-
-   private String read(String classPathResource) throws IOException {
-      return Util.read(getClass().getResourceAsStream(classPathResource));
    }
 
    @AfterClass(alwaysRun = true)
@@ -140,7 +133,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       //Don't clear, this is destroying the index
    }
 
-   public void testAttributeQuery() throws Exception {
+   public void testAttributeQuery() {
       // get user back from remote cache and check its attributes
       User fromCache = remoteCache.get(1);
       assertNotNull(fromCache);
@@ -158,7 +151,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       assertUser1(list.get(0));
    }
 
-   public void testEmbeddedAttributeQuery() throws Exception {
+   public void testEmbeddedAttributeQuery() {
       // get user back from remote cache via query and check its attributes
       QueryFactory qf = Search.getQueryFactory(remoteCache);
       Query query = qf.from(UserPB.class)
@@ -172,7 +165,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
    }
 
    @Test(expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*ISPN028503: Property addresses can not be selected from type sample_bank_account.User since it is an embedded entity.")
-   public void testInvalidEmbeddedAttributeQuery() throws Exception {
+   public void testInvalidEmbeddedAttributeQuery() {
       QueryFactory qf = Search.getQueryFactory(remoteCache);
 
       Query q = qf.from(UserPB.class)
@@ -181,7 +174,7 @@ public class HotRodQueryTest extends SingleCacheManagerTest {
       q.list();  // exception expected
    }
 
-   public void testProjections() throws Exception {
+   public void testProjections() {
       // get user back from remote cache and check its attributes
       User fromCache = remoteCache.get(1);
       assertUser1(fromCache);

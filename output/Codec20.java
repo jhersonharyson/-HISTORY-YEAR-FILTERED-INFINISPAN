@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.infinispan.client.hotrod.VersionedMetadata;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.configuration.ClientIntelligence;
+import org.infinispan.client.hotrod.counter.impl.HotRodCounterEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryCreatedEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryCustomEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryModifiedEvent;
@@ -34,6 +35,7 @@ import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.marshall.MarshallerUtil;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.Either;
+import org.infinispan.counter.api.CounterState;
 
 /**
  * A Hot Rod encoder/decoder for version 2.0 of the protocol.
@@ -49,9 +51,17 @@ public class Codec20 implements Codec, HotRodConstants {
 
    final boolean trace = getLog().isTraceEnabled();
 
+   private static HotRodCounterEvent decodeCounterEvent(String counterName, Transport transport) {
+      short encodedCounterState = transport.readByte();
+      long oldValue = transport.readLong();
+      long newValue = transport.readLong();
+      return new HotRodCounterEvent(counterName, oldValue, decodeOldState(encodedCounterState), newValue,
+            decodeNewState(encodedCounterState));
+   }
+
    @Override
-   public <T> T readUnmarshallByteArray(Transport transport, short status) {
-      return CodecUtils.readUnmarshallByteArray(transport, status);
+   public <T> T readUnmarshallByteArray(Transport transport, short status, List<String> whitelist) {
+      return CodecUtils.readUnmarshallByteArray(transport, status, whitelist);
    }
 
    @Override
@@ -163,14 +173,49 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public ClientEvent readEvent(Transport transport, byte[] expectedListenerId, Marshaller marshaller) {
+   public ClientEvent readEvent(Transport transport, byte[] expectedListenerId, Marshaller marshaller, List<String> whitelist) {
       readMagic(transport);
       readMessageId(transport, null);
       short eventTypeId = transport.readByte();
-      return readPartialEvent(transport, expectedListenerId, marshaller, eventTypeId);
+      return readPartialEvent(transport, expectedListenerId, marshaller, eventTypeId, whitelist);
    }
 
-   protected ClientEvent readPartialEvent(Transport transport, byte[] expectedListenerId, Marshaller marshaller, short eventTypeId) {
+   private static CounterState decodeOldState(short encoded) {
+      switch (encoded & 0x03) {
+         case 0:
+            return CounterState.VALID;
+         case 0x01:
+            return CounterState.LOWER_BOUND_REACHED;
+         case 0x02:
+            return CounterState.UPPER_BOUND_REACHED;
+         default:
+            throw new IllegalStateException();
+      }
+   }
+
+   private static CounterState decodeNewState(short encoded) {
+      switch (encoded & 0x0C) {
+         case 0:
+            return CounterState.VALID;
+         case 0x04:
+            return CounterState.LOWER_BOUND_REACHED;
+         case 0x08:
+            return CounterState.UPPER_BOUND_REACHED;
+         default:
+            throw new IllegalStateException();
+      }
+   }
+
+   @Override
+   public HotRodCounterEvent readCounterEvent(Transport transport, byte[] listenerId) {
+      readAndValidateHeader(transport);
+      String counterName = transport.readString();
+      byte[] receivedListenerId = transport.readArray();
+      assert Arrays.equals(receivedListenerId, listenerId);
+      return decodeCounterEvent(counterName, transport);
+   }
+
+   protected ClientEvent readPartialEvent(Transport transport, byte[] expectedListenerId, Marshaller marshaller, short eventTypeId, List<String> whitelist) {
       short status = transport.readByte();
       transport.readByte(); // ignore, no topology expected
       ClientEvent.Type eventType;
@@ -199,20 +244,20 @@ public class Codec20 implements Codec, HotRodConstants {
       boolean isRetried = transport.readByte() == 1 ? true : false;
 
       if (isCustom == 1) {
-         final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
+         final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status, whitelist);
          return createCustomEvent(eventData, eventType, isRetried);
       } else {
          switch (eventType) {
             case CLIENT_CACHE_ENTRY_CREATED:
-               Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
+               Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status, whitelist);
                long createdDataVersion = transport.readLong();
                return createCreatedEvent(createdKey, createdDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_MODIFIED:
-               Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
+               Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status, whitelist);
                long modifiedDataVersion = transport.readLong();
                return createModifiedEvent(modifiedKey, modifiedDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_REMOVED:
-               Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status);
+               Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray(), status, whitelist);
                return createRemovedEvent(removedKey, isRetried);
             default:
                throw log.unknownEvent(eventTypeId);
@@ -221,7 +266,7 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public Either<Short, ClientEvent> readHeaderOrEvent(Transport transport, HeaderParams params, byte[] expectedListenerId, Marshaller marshaller) {
+   public Either<Short, ClientEvent> readHeaderOrEvent(Transport transport, HeaderParams params, byte[] expectedListenerId, Marshaller marshaller, List<String> whitelist) {
       readMagic(transport);
       readMessageId(transport, null);
       short opCode = transport.readByte();
@@ -229,7 +274,7 @@ public class Codec20 implements Codec, HotRodConstants {
          case CACHE_ENTRY_CREATED_EVENT_RESPONSE:
          case CACHE_ENTRY_MODIFIED_EVENT_RESPONSE:
          case CACHE_ENTRY_REMOVED_EVENT_RESPONSE:
-            ClientEvent clientEvent = readPartialEvent(transport, expectedListenerId, marshaller, opCode);
+            ClientEvent clientEvent = readPartialEvent(transport, expectedListenerId, marshaller, opCode, whitelist);
             return Either.newRight(clientEvent);
          default:
             return Either.newLeft(readPartialHeader(transport, params, opCode));
@@ -237,13 +282,13 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public Object returnPossiblePrevValue(Transport transport, short status, int flags) {
+   public Object returnPossiblePrevValue(Transport transport, short status, int flags, List<String> whitelist) {
       Marshaller marshaller = transport.getTransportFactory().getMarshaller();
       if (HotRodConstants.hasPrevious(status)) {
          byte[] bytes = transport.readArray();
          if (trace) getLog().tracef("Previous value bytes is: %s", printArray(bytes, false));
          //0-length response means null
-         return bytes.length == 0 ? null : MarshallerUtil.bytes2obj(marshaller, bytes, status);
+         return bytes.length == 0 ? null : MarshallerUtil.bytes2obj(marshaller, bytes, status, whitelist);
       } else {
          return null;
       }
@@ -461,9 +506,20 @@ public class Codec20 implements Codec, HotRodConstants {
       for (int i = 0; i < clusterSize; i++) {
          String host = transport.readString();
          int port = transport.readUnsignedShort();
-         addresses[i] = new InetSocketAddress(host, port);
+         addresses[i] = InetSocketAddress.createUnresolved(host, port);
       }
       return addresses;
+   }
+
+   private void readAndValidateHeader(Transport transport) {
+      readMagic(transport);
+      readMessageId(transport, null);
+      short responseCode = transport.readByte();
+      assert responseCode == COUNTER_EVENT_RESPONSE;
+      short status = transport.readByte();
+      assert status == 0;
+      short topology = transport.readByte();
+      assert topology == 0;
    }
 
 }

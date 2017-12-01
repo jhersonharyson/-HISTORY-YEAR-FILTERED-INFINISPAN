@@ -119,7 +119,7 @@ public class DistributionRetryTest extends AbstractRetryTest {
       Marshaller sm = new JBossMarshaller();
       TcpTransport transport = (TcpTransport) tcpTp.getTransport(sm.objectToByteBuffer(key, 64), null, RemoteCacheManager.cacheNameBytes());
       try {
-      assertEquals(transport.getServerAddress(), new InetSocketAddress("localhost", hotRodServer2.getPort()));
+      assertEquals(transport.getServerAddress(), InetSocketAddress.createUnresolved(hotRodServer2.getHost(), hotRodServer2.getPort()));
       } finally {
          tcpTp.releaseTransport(transport);
       }
@@ -132,17 +132,15 @@ public class DistributionRetryTest extends AbstractRetryTest {
       return key;
    }
 
-   public static class ByteKeyGenerator implements KeyGenerator {
+   public static class ByteKeyGenerator implements KeyGenerator<Object> {
       Random r = new Random();
       @Override
-      public Object getKey() {
+      public byte[] getKey() {
          String result = String.valueOf(r.nextLong());
          Marshaller sm = new JBossMarshaller();
          try {
             return sm.objectToByteBuffer(result, 64);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         } catch (InterruptedException e) {
+         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
          }
       }

@@ -3,7 +3,6 @@ package org.infinispan.client.hotrod;
 import static org.testng.AssertJUnit.assertEquals;
 
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
-import org.infinispan.commons.equivalence.ByteArrayEquivalence;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.persistence.dummy.DummyInMemoryStoreConfigurationBuilder;
@@ -47,8 +46,7 @@ public class SizeTest extends MultiHotRodServersTest {
    public void testPersistentDistributedCacheSize() {
       String cacheName = "persistent-distributed-size";
       ConfigurationBuilder builder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
-      builder.eviction().size(1);
-      builder.dataContainer().keyEquivalence(ByteArrayEquivalence.INSTANCE);
+      builder.memory().size(1);
       builder.persistence()
             .passivation(true)
             .addStore(DummyInMemoryStoreConfigurationBuilder.class)

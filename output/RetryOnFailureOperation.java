@@ -5,7 +5,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.infinispan.client.hotrod.configuration.ClientIntelligence;
+import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.exceptions.RemoteIllegalLifecycleStateException;
 import org.infinispan.client.hotrod.exceptions.RemoteNodeSuspectException;
@@ -38,8 +38,8 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation {
    private boolean triedCompleteRestart = false;
 
    protected RetryOnFailureOperation(Codec codec, TransportFactory transportFactory,
-                                     byte[] cacheName, AtomicInteger topologyId, int flags, ClientIntelligence clientIntelligence) {
-      super(codec, flags, clientIntelligence, cacheName, topologyId);
+                                     byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg) {
+      super(codec, flags, cfg, cacheName, topologyId);
       this.transportFactory = transportFactory;
    }
 
@@ -94,7 +94,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation {
 
    private Set<SocketAddress> updateFailedServers(SocketAddress address, Set<SocketAddress> failedServers) {
       if (failedServers == null) {
-         failedServers = new HashSet<SocketAddress>();
+         failedServers = new HashSet<>();
       }
 
       if (trace)

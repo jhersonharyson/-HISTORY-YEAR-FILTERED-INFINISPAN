@@ -16,7 +16,7 @@ import org.infinispan.client.hotrod.retry.DistributionRetryTest;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.distribution.ch.ConsistentHash;
+import org.infinispan.distribution.LocalizedCacheTopology;
 import org.infinispan.interceptors.AsyncInterceptorChain;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.remoting.transport.Address;
@@ -72,7 +72,8 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
             ex, new DistributionRetryTest.ByteKeyGenerator(), 2, true);
 
       for (int i = 0; i < 4; i++) {
-         advancedCache(i).addInterceptor(new HitsAwareCacheManagersTest.HitCountInterceptor(), 1);
+         advancedCache(i).getAsyncInterceptorChain()
+                         .addInterceptor(new HitsAwareCacheManagersTest.HitCountInterceptor(), 1);
       }
    }
 
@@ -114,12 +115,12 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
    }
 
    private void runTest(int cacheIndex) {
-      ConsistentHash serverCH = advancedCache(cacheIndex).getDistributionManager().getConsistentHash();
+      LocalizedCacheTopology serverTopology = advancedCache(cacheIndex).getDistributionManager().getCacheTopology();
 
       for (int i = 0; i < NUM_KEYS; i++) {
          byte[] keyBytes = (byte[]) kas.getKeyForAddress(address(cacheIndex));
          String key = DistributionRetryTest.ByteKeyGenerator.getStringObject(keyBytes);
-         Address serverPrimary = serverCH.locatePrimaryOwner(keyBytes);
+         Address serverPrimary = serverTopology.getDistribution(keyBytes).primary();
          assertEquals(address(cacheIndex), serverPrimary);
 
          remoteCache.put(key, "v");
@@ -130,6 +131,7 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
       hitCountInterceptor(cacheIndex).reset();
    }
 
+   @Test(groups = "unstable", description = "ISPN-6901")
    public void testCorrectBalancingOfKeysAfterNodeKill() {
       //final AtomicInteger clientTopologyId = TestingUtil.extractField(remoteCacheManager, "defaultCacheTopologyId");
       TcpTransportFactory transportFactory = TestingUtil.extractField(remoteCacheManager, "transportFactory");
@@ -140,16 +142,13 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
       HotRodServer hotRodServer5 = HotRodClientTestingUtil.startHotRodServer(cm5);
 
       // Rebalancing to include the joiner will increment the topology id by 2
-      eventually(new Condition() {
-         @Override
-         public boolean isSatisfied() throws Exception {
-            int topologyId = transportFactory.getTopologyId(new byte[]{});
-            log.tracef("Client topology id is %d, waiting for it to become %d", topologyId,
-                  topologyIdBeforeJoin + 2);
-            // The put operation will update the client topology (if necessary)
-            remoteCache.put("k", "v");
-            return topologyId >= topologyIdBeforeJoin + 2;
-         }
+      eventually(() -> {
+         int topologyId = transportFactory.getTopologyId(new byte[]{});
+         log.tracef("Client topology id is %d, waiting for it to become %d", topologyId,
+               topologyIdBeforeJoin + 2);
+         // The put operation will update the client topology (if necessary)
+         remoteCache.put("k", "v");
+         return topologyId >= topologyIdBeforeJoin + 2;
       });
 
       resetHitInterceptors();
@@ -162,16 +161,13 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
       TestingUtil.killCacheManagers(cm5);
 
       // Rebalancing to exclude the leaver will again increment the topology id by 2
-      eventually(new Condition() {
-         @Override
-         public boolean isSatisfied() throws Exception {
-            int topologyId = transportFactory.getTopologyId(new byte[]{});
-            log.tracef("Client topology id is %d, waiting for it to become %d", topologyId,
-                  topologyIdBeforeJoin + 4);
-            // The put operation will update the client topology (if necessary)
-            remoteCache.put("k", "v");
-            return topologyId >= topologyIdBeforeJoin + 4;
-         }
+      eventually(() -> {
+         int topologyId = transportFactory.getTopologyId(new byte[]{});
+         log.tracef("Client topology id is %d, waiting for it to become %d", topologyId,
+               topologyIdBeforeJoin + 4);
+         // The put operation will update the client topology (if necessary)
+         remoteCache.put("k", "v");
+         return topologyId >= topologyIdBeforeJoin + 4;
       });
 
       resetHitInterceptors();

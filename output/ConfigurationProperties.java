@@ -39,10 +39,13 @@ public class ConfigurationProperties {
    public static final String PROTOCOL_VERSION = "infinispan.client.hotrod.protocol_version";
    public static final String USE_SSL = "infinispan.client.hotrod.use_ssl";
    public static final String KEY_STORE_FILE_NAME = "infinispan.client.hotrod.key_store_file_name";
+   public static final String KEY_STORE_TYPE = "infinispan.client.hotrod.key_store_type";
    public static final String KEY_STORE_PASSWORD = "infinispan.client.hotrod.key_store_password";
    public static final String SNI_HOST_NAME = "infinispan.client.hotrod.sni_host_name";
+   public static final String KEY_ALIAS = "infinispan.client.hotrod.key_alias";
    public static final String KEY_STORE_CERTIFICATE_PASSWORD = "infinispan.client.hotrod.key_store_certificate_password";
    public static final String TRUST_STORE_FILE_NAME = "infinispan.client.hotrod.trust_store_file_name";
+   public static final String TRUST_STORE_TYPE = "infinispan.client.hotrod.trust_store_type";
    public static final String TRUST_STORE_PASSWORD = "infinispan.client.hotrod.trust_store_password";
    public static final String SSL_PROTOCOL = "infinispan.client.hotrod.ssl_protocol";
    public static final String SSL_CONTEXT = "infinispan.client.hotrod.ssl_context";
@@ -51,10 +54,15 @@ public class ConfigurationProperties {
    public static final String SASL_MECHANISM = "infinispan.client.hotrod.sasl_mechanism";
    public static final String AUTH_CALLBACK_HANDLER = "infinispan.client.hotrod.auth_callback_handler";
    public static final String AUTH_SERVER_NAME = "infinispan.client.hotrod.auth_server_name";
+   public static final String AUTH_USERNAME = "infinispan.client.hotrod.auth_username";
+   public static final String AUTH_PASSWORD = "infinispan.client.hotrod.auth_password";
+   public static final String AUTH_REALM = "infinispan.client.hotrod.auth_realm";
    public static final String AUTH_CLIENT_SUBJECT = "infinispan.client.hotrod.auth_client_subject";
    public static final String SASL_PROPERTIES_PREFIX = "infinispan.client.hotrod.sasl_properties";
    public static final Pattern SASL_PROPERTIES_PREFIX_REGEX =
          Pattern.compile('^' + ConfigurationProperties.SASL_PROPERTIES_PREFIX + '.');
+   public static final String JAVA_SERIAL_WHITELIST = "infinispan.client.hotrod.java_serial_whitelist";
+   public static final String BATCH_SIZE = "infinispan.client.hotrod.batch_size";
 
    // defaults
 
@@ -64,6 +72,7 @@ public class ConfigurationProperties {
    public static final int DEFAULT_SO_TIMEOUT = 60000;
    public static final int DEFAULT_CONNECT_TIMEOUT = 60000;
    public static final int DEFAULT_MAX_RETRIES = 10;
+   public static final int DEFAULT_BATCH_SIZE = 10000;
 
    private final TypedProperties props;
 
@@ -149,12 +158,24 @@ public class ConfigurationProperties {
       return props.getProperty(KEY_STORE_FILE_NAME, null);
    }
 
+   public String getKeyStoreType() {
+      return props.getProperty(KEY_STORE_TYPE, null);
+   }
+
    public String getKeyStorePassword() {
       return props.getProperty(KEY_STORE_PASSWORD, null);
    }
 
+   public String getKeyAlias() {
+      return props.getProperty(KEY_ALIAS, null);
+   }
+
    public String getTrustStoreFileName() {
       return props.getProperty(TRUST_STORE_FILE_NAME, null);
+   }
+
+   public String getTrustStoreType() {
+      return props.getProperty(TRUST_STORE_TYPE, null);
    }
 
    public String getTrustStorePassword() {
@@ -167,6 +188,10 @@ public class ConfigurationProperties {
 
    public int getMaxRetries() {
       return props.getIntProperty(MAX_RETRIES, DEFAULT_MAX_RETRIES);
+   }
+
+   public int getBatchSize() {
+      return props.getIntProperty(BATCH_SIZE, DEFAULT_BATCH_SIZE);
    }
 
    /**

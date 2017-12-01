@@ -1,14 +1,13 @@
 package org.infinispan.client.hotrod.test;
 
 import static org.infinispan.distribution.DistributionTestHelper.isFirstOwner;
+import static org.infinispan.server.core.test.ServerTestingUtil.findFreePort;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.infinispan.Cache;
@@ -27,14 +26,12 @@ import org.infinispan.container.versioning.NumericVersion;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.scripting.ScriptingManager;
+import org.infinispan.server.core.test.ServerTestingUtil;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.infinispan.server.hotrod.test.HotRodTestingUtil;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.util.logging.LogFactory;
-
-import io.netty.channel.ChannelException;
-import io.netty.channel.unix.Errors.NativeIoException;
 
 /**
  * Utility methods for the Hot Rod client
@@ -46,57 +43,12 @@ public class HotRodClientTestingUtil {
 
    private static final Log log = LogFactory.getLog(HotRodClientTestingUtil.class, Log.class);
 
-   /**
-    * This needs to be different than the one used in the server tests in order to make sure that there's no clash.
-    */
-   private static final AtomicInteger uniquePort = new AtomicInteger(15232);
-
    public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager, HotRodServerConfigurationBuilder builder) {
-      return startHotRodServer(cacheManager, uniquePort.incrementAndGet(), builder);
+      return startHotRodServer(cacheManager, findFreePort(), builder);
    }
 
-   private static boolean isBindException(Throwable e) {
-      if (e instanceof BindException)
-         return true;
-      if (e instanceof NativeIoException) {
-         NativeIoException nativeIoException = (NativeIoException) e;
-         return nativeIoException.getMessage().contains("bind");
-      }
-      return false;
-   }
-
-   public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager, int startPort, HotRodServerConfigurationBuilder builder) {
-      // TODO: This is very rudimentary!! HotRodTestingUtil needs a more robust solution where ports are generated randomly and retries if already bound
-      HotRodServer server = null;
-      int maxTries = 10;
-      int currentTries = 0;
-      Throwable lastError = null;
-      int port = startPort;
-      while (server == null && currentTries < maxTries) {
-         try {
-            server = HotRodTestingUtil.startHotRodServer(cacheManager, port++, builder);
-         } catch (ChannelException e) {
-            if (!isBindException(e.getCause())) {
-               throw e;
-            } else {
-               log.debug("Address already in use: [" + e.getMessage() + "], so let's try next port");
-               currentTries++;
-               lastError = e;
-            }
-         } catch (Throwable t) {
-            if (!isBindException(t)) {
-               throw t;
-            } else {
-               log.debug("Address already in use: [" + t.getMessage() + "], so let's try next port");
-               currentTries++;
-               lastError = t;
-            }
-         }
-      }
-      if (server == null && lastError != null)
-         throw new AssertionError(lastError);
-
-      return server;
+   public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager, int port, HotRodServerConfigurationBuilder builder) {
+      return ServerTestingUtil.startProtocolServer(port, p -> HotRodTestingUtil.startHotRodServer(cacheManager, p, builder));
    }
 
    public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager) {
@@ -119,8 +71,7 @@ public class HotRodClientTestingUtil {
    /**
     * Kills a group of remote cache managers.
     *
-    * @param rcm
-    *           the remote cache manager instances to kill
+    * @param rcm the remote cache manager instances to kill
     */
    public static void killRemoteCacheManagers(RemoteCacheManager... rcms) {
       if (rcms != null) {
@@ -180,7 +131,7 @@ public class HotRodClientTestingUtil {
    }
 
    public static <K, V> void withClientListener(RemoteCacheSupplier<K> listener,
-         Object[] fparams, Object[] cparams, Consumer<RemoteCache<K, V>> cons) {
+                                                Object[] fparams, Object[] cparams, Consumer<RemoteCache<K, V>> cons) {
       listener.get().addClientListener(listener, fparams, cparams);
       try {
          cons.accept(listener.get());
@@ -338,7 +289,7 @@ public class HotRodClientTestingUtil {
 
 
    public static void findServerAndKill(RemoteCacheManager client,
-         Collection<HotRodServer> servers, Collection<EmbeddedCacheManager> cacheManagers) {
+                                        Collection<HotRodServer> servers, Collection<EmbeddedCacheManager> cacheManagers) {
       InetSocketAddress addr = (InetSocketAddress) getLoadBalancer(client).nextServer(null);
       for (HotRodServer server : servers) {
          if (server.getPort() == addr.getPort()) {
