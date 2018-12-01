@@ -1,6 +1,13 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
+import java.lang.reflect.Field;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
+
+import org.infinispan.client.hotrod.impl.multimap.protocol.MultimapHotRodConstants;
+import org.infinispan.commons.util.ReflectionUtil;
 
 /**
  * Defines constants defined by Hot Rod specifications.
@@ -25,8 +32,11 @@ public interface HotRodConstants {
    byte VERSION_25 = 25;
    byte VERSION_26 = 26;
    byte VERSION_27 = 27;
+   byte VERSION_28 = 28;
+   byte VERSION_29 = 29;
 
    //requests
+   byte ILLEGAL_OP_CODE = 0x00;
    byte PUT_REQUEST = 0x01;
    byte GET_REQUEST = 0x03;
    byte PUT_IF_ABSENT_REQUEST = 0x05;
@@ -56,6 +66,13 @@ public interface HotRodConstants {
    byte ITERATION_END_REQUEST = 0x35;
    byte GET_STREAM_REQUEST = 0x37;
    byte PUT_STREAM_REQUEST = 0x39;
+   byte PREPARE_REQUEST = 0x3B;
+   byte COMMIT_REQUEST = 0x3D;
+   byte ROLLBACK_REQUEST = 0x3F;
+   byte FORGET_TX_REQUEST = 0x79;
+   byte FETCH_TX_RECOVERY_REQUEST = 0x7B;
+   byte PREPARE_TX_2_REQUEST = 0x7D;
+
    byte COUNTER_CREATE_REQUEST = 0x4B;
    byte COUNTER_GET_CONFIGURATION_REQUEST = 0x4D;
    byte COUNTER_IS_DEFINED_REQUEST = 0x4F;
@@ -98,6 +115,12 @@ public interface HotRodConstants {
    byte ITERATION_END_RESPONSE = 0x36;
    byte GET_STREAM_RESPONSE = 0x38;
    byte PUT_STREAM_RESPONSE = 0x3A;
+   byte PREPARE_RESPONSE = 0x3C;
+   byte COMMIT_RESPONSE = 0x3E;
+   byte ROLLBACK_RESPONSE = 0x40;
+   byte FORGET_TX_RESPONSE = 0x7A;
+   byte FETCH_TX_RECOVERY_RESPONSE = 0x7C;
+   byte PREPARE_TX_2_RESPONSE = 0x7E;
    byte ERROR_RESPONSE = 0x50;
    byte CACHE_ENTRY_CREATED_EVENT_RESPONSE = 0x60;
    byte CACHE_ENTRY_MODIFIED_EVENT_RESPONSE = 0x61;
@@ -123,9 +146,9 @@ public interface HotRodConstants {
    int SUCCESS_WITH_PREVIOUS = 0x03;
    int NOT_EXECUTED_WITH_PREVIOUS = 0x04;
    int INVALID_ITERATION = 0x05;
-   byte NO_ERROR_STATUS_COMPAT = 0x06;
-   byte SUCCESS_WITH_PREVIOUS_COMPAT = 0x07;
-   byte NOT_EXECUTED_WITH_PREVIOUS_COMPAT = 0x08;
+   byte NO_ERROR_STATUS_OBJ_STORAGE = 0x06;
+   byte SUCCESS_WITH_PREVIOUS_OBJ_STORAGE = 0x07;
+   byte NOT_EXECUTED_WITH_PREVIOUS_OBJ_STORAGE = 0x08;
 
    int INVALID_MAGIC_OR_MESSAGE_ID_STATUS = 0x81;
    int REQUEST_PARSING_ERROR_STATUS = 0x84;
@@ -136,25 +159,27 @@ public interface HotRodConstants {
    int NODE_SUSPECTED = 0x87;
    int ILLEGAL_LIFECYCLE_STATE = 0x88;
 
-   @Deprecated
    /**
     * @deprecated use {@link org.infinispan.client.hotrod.configuration.ClientIntelligence#BASIC}
     * instead
     */
-   byte CLIENT_INTELLIGENCE_BASIC = 0x01;
    @Deprecated
+   byte CLIENT_INTELLIGENCE_BASIC = 0x01;
+
    /**
     * @deprecated use {@link org.infinispan.client.hotrod.configuration.ClientIntelligence#TOPOLOGY_AWARE}
     * instead
     */
-   byte CLIENT_INTELLIGENCE_TOPOLOGY_AWARE = 0x02;
    @Deprecated
+   byte CLIENT_INTELLIGENCE_TOPOLOGY_AWARE = 0x02;
+
    /**
     * @deprecated use {@link org.infinispan.client.hotrod.configuration.ClientIntelligence#HASH_DISTRIBUTION_AWARE}
     * instead
     */
+   @Deprecated
    byte CLIENT_INTELLIGENCE_HASH_DISTRIBUTION_AWARE = 0x03;
-   Charset HOTROD_STRING_CHARSET = Charset.forName("UTF-8");
+   Charset HOTROD_STRING_CHARSET = StandardCharsets.UTF_8;
 
    byte[] DEFAULT_CACHE_NAME_BYTES = new byte[]{};
 
@@ -164,38 +189,71 @@ public interface HotRodConstants {
    int DEFAULT_CACHE_TOPOLOGY = -1;
    int SWITCH_CLUSTER_TOPOLOGY = -2;
 
-   static boolean isSuccess(short status) {
+   static boolean isSuccess(int status) {
       return status == NO_ERROR_STATUS
-         || status == NO_ERROR_STATUS_COMPAT
-         || status == SUCCESS_WITH_PREVIOUS
-         || status == SUCCESS_WITH_PREVIOUS_COMPAT;
+            || status == NO_ERROR_STATUS_OBJ_STORAGE
+            || status == SUCCESS_WITH_PREVIOUS
+            || status == SUCCESS_WITH_PREVIOUS_OBJ_STORAGE;
    }
 
-   static boolean isNotExecuted(short status) {
+   static boolean isNotExecuted(int status) {
       return status == NOT_PUT_REMOVED_REPLACED_STATUS
-         || status == NOT_EXECUTED_WITH_PREVIOUS
-         || status == NOT_EXECUTED_WITH_PREVIOUS_COMPAT;
+            || status == NOT_EXECUTED_WITH_PREVIOUS
+            || status == NOT_EXECUTED_WITH_PREVIOUS_OBJ_STORAGE;
    }
 
-   static boolean isNotExist(short status) {
+   static boolean isNotExist(int status) {
       return status == KEY_DOES_NOT_EXIST_STATUS;
    }
 
-   static boolean hasPrevious(short status) {
+   static boolean hasPrevious(int status) {
       return status == SUCCESS_WITH_PREVIOUS
-         || status == SUCCESS_WITH_PREVIOUS_COMPAT
-         || status == NOT_EXECUTED_WITH_PREVIOUS
-         || status == NOT_EXECUTED_WITH_PREVIOUS_COMPAT;
+            || status == SUCCESS_WITH_PREVIOUS_OBJ_STORAGE
+            || status == NOT_EXECUTED_WITH_PREVIOUS
+            || status == NOT_EXECUTED_WITH_PREVIOUS_OBJ_STORAGE;
    }
 
-   static boolean hasCompatibility(short status) {
-      return status == NO_ERROR_STATUS_COMPAT
-         || status == SUCCESS_WITH_PREVIOUS_COMPAT
-         || status == NOT_EXECUTED_WITH_PREVIOUS_COMPAT;
+   static boolean isObjectStorage(short status) {
+      return status == NO_ERROR_STATUS_OBJ_STORAGE
+            || status == SUCCESS_WITH_PREVIOUS_OBJ_STORAGE
+            || status == NOT_EXECUTED_WITH_PREVIOUS_OBJ_STORAGE;
    }
 
    static boolean isInvalidIteration(short status) {
       return status == INVALID_ITERATION;
    }
 
+   final class Names {
+      static final String[] NAMES;
+
+      private Names() {
+      }
+
+      static {
+         Predicate<Field> filterRequestsResponses =
+               f -> f.getName().endsWith("_REQUEST") || f.getName().endsWith("_RESPONSE");
+         int maxId = Stream.concat(Stream.of(HotRodConstants.class.getFields()),
+                                   Stream.of(MultimapHotRodConstants.class.getFields()))
+                           .filter(filterRequestsResponses)
+                           .mapToInt(f -> ReflectionUtil.getIntAccessibly(f, null))
+                           .max().orElse(0);
+         NAMES = new String[maxId + 1];
+         Stream.concat(Stream.of(HotRodConstants.class.getFields()),
+                       Stream.of(MultimapHotRodConstants.class.getFields()))
+               .filter(filterRequestsResponses)
+               .forEach(f -> {
+                  int id = ReflectionUtil.getIntAccessibly(f, null);
+                  assert NAMES[id] == null;
+                  NAMES[id] = f.getName();
+               });
+         for (int i = 0; i < NAMES.length; ++i) {
+            if (NAMES[i] == null)
+               NAMES[i] = "UNKNOWN";
+         }
+      }
+
+      public static String of(short opCode) {
+         return NAMES[opCode];
+      }
+   }
 }

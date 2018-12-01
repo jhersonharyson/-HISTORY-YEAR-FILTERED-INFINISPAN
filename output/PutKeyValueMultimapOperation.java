@@ -6,13 +6,18 @@ import static org.infinispan.client.hotrod.impl.multimap.protocol.MultimapHotRod
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.exceptions.InvalidResponseException;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
+import org.infinispan.client.hotrod.impl.operations.AbstractKeyValueOperation;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -23,20 +28,29 @@ import net.jcip.annotations.Immutable;
  * @since 9.2
  */
 @Immutable
-public class PutKeyValueMultimapOperation<Void> extends AbstractMultimapKeyValueOperation<Void> {
+public class PutKeyValueMultimapOperation extends AbstractKeyValueOperation<Void> {
 
    public PutKeyValueMultimapOperation(Codec codec,
-                                       TransportFactory transportFactory,
-                                       Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg, byte[] value, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
-      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit);
+                                       ChannelFactory channelFactory,
+                                       Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId,
+                                       int flags, Configuration cfg, byte[] value, long lifespan,
+                                       TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, DataFormat dataFormat,
+                                       ClientStatistics clientStatistics) {
+      super(PUT_MULTIMAP_REQUEST, PUT_MULTIMAP_RESPONSE, codec, channelFactory, key, keyBytes, cacheName, topologyId,
+            flags, cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics);
    }
 
    @Override
-   protected Void executeOperation(Transport transport) {
-      short status = sendKeyValueOperation(transport, PUT_MULTIMAP_REQUEST, PUT_MULTIMAP_RESPONSE);
+   protected void executeOperation(Channel channel) {
+      scheduleRead(channel);
+      sendKeyValueOperation(channel);
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (!HotRodConstants.isSuccess(status)) {
          throw new InvalidResponseException("Unexpected response status: " + Integer.toHexString(status));
       }
-      return null;
+      complete(null);
    }
 }

@@ -5,10 +5,13 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.infinispan.client.hotrod.jmx.RemoteCacheClientStatisticsMXBean;
 import org.infinispan.commons.api.BasicCache;
+import org.infinispan.commons.api.TransactionalCache;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableIteratorCollection;
 import org.infinispan.commons.util.CloseableIteratorSet;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.query.dsl.Query;
 
 /**
@@ -63,7 +66,7 @@ import org.infinispan.query.dsl.Query;
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-public interface RemoteCache<K, V> extends BasicCache<K, V> {
+public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache {
    /**
     * Removes the given entry only if its version matches the supplied version. A typical use case looks like this:
     * <pre>
@@ -257,6 +260,11 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
    MetadataValue<V> getWithMetadata(K key);
 
    /**
+    * Asynchronously returns the {@link MetadataValue} associated to the supplied key param, or null if it doesn't exist.
+    */
+   CompletableFuture<MetadataValue<V>> getWithMetadataAsync(K key);
+
+   /**
     * @inheritDoc
     * <p>
     * Due to this set being backed by the remote cache, each invocation on this set may require remote invocations
@@ -275,6 +283,18 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
    CloseableIteratorSet<K> keySet();
 
    /**
+    * This method is identical to {@link #keySet()} except that it will only return keys that map to the given segments.
+    * Note that these segments will be determined by the remote server. Thus you should be aware of how many segments
+    * it has configured and hashing algorithm it is using. If the segments and hashing algorithm are not the same
+    * this method may return unexpected keys.
+    * @param segments the segments of keys to return - null means all available
+    * @return set containing keys that map to the given segments
+    * @see #keySet()
+    * @since 9.4
+    */
+   CloseableIteratorSet<K> keySet(IntSet segments);
+
+   /**
     * @inheritDoc
     * <p>
     * Due to this collection being backed by the remote cache, each invocation on this collection may require remote
@@ -291,6 +311,18 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     */
    @Override
    CloseableIteratorCollection<V> values();
+
+   /**
+    * This method is identical to {@link #values()} except that it will only return values that map to the given segments.
+    * Note that these segments will be determined by the remote server. Thus you should be aware of how many segments
+    * it has configured and hashing algorithm it is using. If the segments and hashing algorithm are not the same
+    * this method may return unexpected values.
+    * @param segments the segments of values to return - null means all available
+    * @return collection containing values that map to the given segments
+    * @see #values()
+    * @since 9.4
+    */
+   CloseableIteratorCollection<V> values(IntSet segments);
 
    /**
     * @inheritDoc
@@ -313,6 +345,18 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     */
    @Override
    CloseableIteratorSet<Entry<K, V>> entrySet();
+
+   /**
+    * This method is identical to {@link #entrySet()} except that it will only return entries that map to the given segments.
+    * Note that these segments will be determined by the remote server. Thus you should be aware of how many segments
+    * it has configured and hashing algorithm it is using. If the segments and hashing algorithm are not the same
+    * this method may return unexpected entries.
+    * @param segments the segments of entries to return - null means all available
+    * @return set containing entries that map to the given segments
+    * @see #entrySet()
+    * @since 9.4
+    */
+   CloseableIteratorSet<Entry<K, V>> entrySet(IntSet segments);
 
    /**
     * Synthetic operation. The client iterates over the set of keys and calls put for each one of them. This results in
@@ -362,7 +406,24 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
    @Override
    void putAll(Map<? extends K, ? extends V> m);
 
-   ServerStatistics stats();
+   /**
+    * Returns server-side statistics for this cache.
+    * @deprecated use {@link #serverStatistics()} instead
+    */
+   @Deprecated
+   default ServerStatistics stats() {
+      return serverStatistics();
+   }
+
+   /**
+    * Returns client-side statistics for this cache.
+    */
+   RemoteCacheClientStatisticsMXBean clientStatistics();
+
+   /**
+    * Returns server-side statistics for this cache.
+    */
+   ServerStatistics serverStatistics();
 
    /**
     * Applies one or more {@link Flag}s to the scope of a single invocation.  See the {@link Flag} enumeration to for
@@ -450,6 +511,14 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
    <T> T execute(String scriptName, Map<String, ?> params);
 
    /**
+    * Executes a remote script passing a set of named parameters, hinting that the script should be executed
+    * on the server that is expected to store given key. The key itself is not transferred to the server.
+    */
+   default <T> T execute(String scriptName, Map<String, ?> params, Object key) {
+      return execute(scriptName, params);
+   }
+
+   /**
     * Returns {@link CacheTopologyInfo} for this cache.
     */
    CacheTopologyInfo getCacheTopologyInfo();
@@ -458,4 +527,14 @@ public interface RemoteCache<K, V> extends BasicCache<K, V> {
     * Returns a cache where values are manipulated using {@link java.io.InputStream} and {@link java.io.OutputStream}
     */
    StreamingRemoteCache<K> streaming();
+
+   /**
+    * Return a new instance of {@link RemoteCache} using the supplied {@link DataFormat}.
+    */
+   <T, U> RemoteCache<T, U> withDataFormat(DataFormat dataFormat);
+
+   /**
+    * Return the currently {@link DataFormat} being used.
+    */
+   DataFormat getDataFormat();
 }

@@ -6,33 +6,39 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import org.infinispan.client.hotrod.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
-import org.infinispan.client.hotrod.impl.TypedProperties;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
-import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
-import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.configuration.Builder;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
+import org.infinispan.commons.util.Features;
+import org.infinispan.commons.util.StringPropertyReplacer;
+import org.infinispan.commons.util.TypedProperties;
 import org.infinispan.commons.util.Util;
 
 /**
- * ConfigurationBuilder used to generate immutable {@link Configuration} objects to pass to the
- * {@link RemoteCacheManager#RemoteCacheManager(Configuration)} constructor.
+ * <p>ConfigurationBuilder used to generate immutable {@link Configuration} objects to pass to the
+ * {@link RemoteCacheManager#RemoteCacheManager(Configuration)} constructor.</p>
+ *
+ * <p>If you prefer to configure the client declaratively, see {@link org.infinispan.client.hotrod.configuration}</p>
  *
  * @author Tristan Tarrant
  * @since 5.3
@@ -47,13 +53,12 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    private WeakReference<ClassLoader> classLoader;
    private final ExecutorFactoryConfigurationBuilder asyncExecutorFactory;
-   private Class<? extends FailoverRequestBalancingStrategy> balancingStrategyClass = RoundRobinBalancingStrategy.class;
-   private FailoverRequestBalancingStrategy balancingStrategy;
+   private Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory = RoundRobinBalancingStrategy::new;
    private ClientIntelligence clientIntelligence = ClientIntelligence.getDefault();
    private final ConnectionPoolConfigurationBuilder connectionPool;
    private int connectionTimeout = ConfigurationProperties.DEFAULT_CONNECT_TIMEOUT;
    @SuppressWarnings("unchecked")
-   private final Class<? extends ConsistentHash> consistentHashImpl[] = new Class[] {
+   private final Class<? extends ConsistentHash> consistentHashImpl[] = new Class[]{
          null, ConsistentHashV2.class, SegmentConsistentHash.class
    };
    private boolean forceReturnValues;
@@ -66,14 +71,15 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    private final SecurityConfigurationBuilder security;
    private boolean tcpNoDelay = true;
    private boolean tcpKeepAlive = false;
-   private Class<? extends TransportFactory> transportFactory = TcpTransportFactory.class;
    private int valueSizeEstimate = ConfigurationProperties.DEFAULT_VALUE_SIZE;
    private int maxRetries = ConfigurationProperties.DEFAULT_MAX_RETRIES;
    private final NearCacheConfigurationBuilder nearCache;
    private final List<String> whiteListRegExs = new ArrayList<>();
    private int batchSize = ConfigurationProperties.DEFAULT_BATCH_SIZE;
-
-   private final List<ClusterConfigurationBuilder> clusters = new ArrayList<ClusterConfigurationBuilder>();
+   private final TransactionConfigurationBuilder transaction;
+   private final StatisticsConfigurationBuilder statistics;
+   private final List<ClusterConfigurationBuilder> clusters = new ArrayList<>();
+   private Features features;
 
    public ConfigurationBuilder() {
       this.classLoader = new WeakReference<>(Thread.currentThread().getContextClassLoader());
@@ -81,6 +87,8 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.asyncExecutorFactory = new ExecutorFactoryConfigurationBuilder(this);
       this.security = new SecurityConfigurationBuilder(this);
       this.nearCache = new NearCacheConfigurationBuilder(this);
+      this.transaction = new TransactionConfigurationBuilder(this);
+      this.statistics = new StatisticsConfigurationBuilder(this);
    }
 
    @Override
@@ -99,6 +107,11 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public ConfigurationBuilder addServers(String servers) {
+      parseServers(servers, (host, port) -> addServer().host(host).port(port));
+      return this;
+   }
+
+   public static final void parseServers(String servers, BiConsumer<String, Integer> c) {
       for (String server : servers.split(";")) {
          Matcher matcher = ADDRESS_PATTERN.matcher(server.trim());
          if (matcher.matches()) {
@@ -109,13 +122,12 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
             int port = portString == null
                   ? ConfigurationProperties.DEFAULT_HOTROD_PORT
                   : Integer.parseInt(portString);
-            this.addServer().host(host).port(port);
+            c.accept(host, port);
          } else {
             throw log.parseErrorServerAddress(server);
          }
 
       }
-      return this;
    }
 
    @Override
@@ -125,19 +137,26 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public ConfigurationBuilder balancingStrategy(String balancingStrategy) {
-      this.balancingStrategyClass = Util.loadClass(balancingStrategy, this.classLoader());
+      this.balancingStrategyFactory = () -> Util.getInstance(balancingStrategy, this.classLoader());
+      return this;
+   }
+
+   @Deprecated
+   @Override
+   public ConfigurationBuilder balancingStrategy(FailoverRequestBalancingStrategy balancingStrategy) {
+      this.balancingStrategyFactory = () -> balancingStrategy;
       return this;
    }
 
    @Override
-   public ConfigurationBuilder balancingStrategy(FailoverRequestBalancingStrategy balancingStrategy) {
-      this.balancingStrategy = balancingStrategy;
+   public ConfigurationBuilder balancingStrategy(Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory) {
+      this.balancingStrategyFactory = balancingStrategyFactory;
       return this;
    }
 
    @Override
    public ConfigurationBuilder balancingStrategy(Class<? extends FailoverRequestBalancingStrategy> balancingStrategy) {
-      this.balancingStrategyClass = balancingStrategy;
+      this.balancingStrategyFactory = () -> Util.getInstance(balancingStrategy);
       return this;
    }
 
@@ -263,13 +282,13 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public ConfigurationBuilder transportFactory(String transportFactory) {
-      this.transportFactory = Util.loadClass(transportFactory, this.classLoader());
+      log.transportFactoryDeprecated();
       return this;
    }
 
    @Override
    public ConfigurationBuilder transportFactory(Class<? extends TransportFactory> transportFactory) {
-      this.transportFactory = transportFactory;
+      log.transportFactoryDeprecated();
       return this;
    }
 
@@ -301,6 +320,16 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    @Override
+   public StatisticsConfigurationBuilder statistics() {
+      return statistics;
+   }
+
+   @Override
+   public TransactionConfigurationBuilder transaction() {
+      return transaction;
+   }
+
+   @Override
    public ConfigurationBuilder withProperties(Properties properties) {
       TypedProperties typed = TypedProperties.toTypedProperties(properties);
 
@@ -308,7 +337,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
          this.asyncExecutorFactory().factoryClass(typed.getProperty(ConfigurationProperties.ASYNC_EXECUTOR_FACTORY, null, true));
       }
       this.asyncExecutorFactory().withExecutorProperties(typed);
-      this.balancingStrategy(typed.getProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyClass.getName(), true));
+      this.balancingStrategy(typed.getProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyFactory.get().getClass().getName(), true));
       this.clientIntelligence(typed.getEnumProperty(ConfigurationProperties.CLIENT_INTELLIGENCE, ClientIntelligence.class, ClientIntelligence.getDefault(), true));
       this.connectionPool.withPoolProperties(typed);
       this.connectionTimeout(typed.getIntProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectionTimeout, true));
@@ -352,7 +381,19 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       }
 
       this.batchSize(typed.getIntProperty(ConfigurationProperties.BATCH_SIZE, batchSize, true));
+      transaction.withTransactionProperties(properties);
+      nearCache.withProperties(properties);
 
+      Map<String, String> xsiteProperties = typed.entrySet().stream()
+            .filter(e -> ((String) e.getKey()).startsWith(ConfigurationProperties.CLUSTER_PROPERTIES_PREFIX))
+            .collect(Collectors.toMap(
+                  e -> ConfigurationProperties.CLUSTER_PROPERTIES_PREFIX_REGEX
+                        .matcher((String) e.getKey()).replaceFirst(""),
+                  e -> StringPropertyReplacer.replaceProperties((String) e.getValue())));
+      xsiteProperties.entrySet().forEach(entry -> {
+         ClusterConfigurationBuilder cluster = this.addCluster(entry.getKey());
+         parseServers(entry.getValue(), (host, port) -> cluster.addClusterNode(host, port));
+      });
       return this;
    }
 
@@ -362,10 +403,12 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       asyncExecutorFactory.validate();
       security.validate();
       nearCache.validate();
+      transaction.validate();
+      statistics.validate();
       if (maxRetries < 0) {
          throw log.invalidMaxRetries(maxRetries);
       }
-      Set<String> clusterNameSet = new HashSet<String>(clusters.size());
+      Set<String> clusterNameSet = new HashSet<>(clusters.size());
       for (ClusterConfigurationBuilder clusterConfigBuilder : clusters) {
          if (!clusterNameSet.add(clusterConfigBuilder.getClusterName())) {
             throw log.duplicateClusterDefinition(clusterConfigBuilder.getClusterName());
@@ -376,7 +419,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public Configuration create() {
-      List<ServerConfiguration> servers = new ArrayList<ServerConfiguration>();
+      List<ServerConfiguration> servers = new ArrayList<>();
       if (this.servers.size() > 0)
          for (ServerConfigurationBuilder server : this.servers) {
             servers.add(server.create());
@@ -386,18 +429,19 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       }
 
       List<ClusterConfiguration> serverClusterConfigs = clusters.stream()
-         .map(ClusterConfigurationBuilder::create).collect(Collectors.toList());
+            .map(ClusterConfigurationBuilder::create).collect(Collectors.toList());
       if (marshaller == null && marshallerClass == null) {
          marshallerClass = GenericJBossMarshaller.class;
       }
 
-      return new Configuration(asyncExecutorFactory.create(), balancingStrategyClass, balancingStrategy, classLoader == null ? null : classLoader.get(), clientIntelligence, connectionPool.create(), connectionTimeout,
-            consistentHashImpl, forceReturnValues, keySizeEstimate, marshaller, marshallerClass, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive, transportFactory,
-            valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs, whiteListRegExs, batchSize);
+      return new Configuration(asyncExecutorFactory.create(), balancingStrategyFactory, classLoader == null ? null : classLoader.get(), clientIntelligence, connectionPool.create(), connectionTimeout,
+            consistentHashImpl, forceReturnValues, keySizeEstimate, marshaller, marshallerClass, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive,
+            valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs, whiteListRegExs, batchSize, transaction.create(), statistics.create(), features);
    }
 
    @Override
    public Configuration build() {
+      features = new Features(classLoader.get());
       return build(true);
    }
 
@@ -410,10 +454,9 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
    @Override
    public ConfigurationBuilder read(Configuration template) {
-      this.classLoader = new WeakReference<ClassLoader>(template.classLoader());
+      this.classLoader = new WeakReference<>(template.classLoader());
       this.asyncExecutorFactory.read(template.asyncExecutorFactory());
-      this.balancingStrategyClass = template.balancingStrategyClass();
-      this.balancingStrategy = template.balancingStrategy();
+      this.balancingStrategyFactory = template.balancingStrategyFactory();
       this.connectionPool.read(template.connectionPool());
       this.connectionTimeout = template.connectionTimeout();
       for (int i = 0; i < consistentHashImpl.length; i++) {
@@ -434,11 +477,12 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.security.read(template.security());
       this.tcpNoDelay = template.tcpNoDelay();
       this.tcpKeepAlive = template.tcpKeepAlive();
-      this.transportFactory = template.transportFactory();
       this.valueSizeEstimate = template.valueSizeEstimate();
       this.maxRetries = template.maxRetries();
       this.nearCache.read(template.nearCache());
       this.whiteListRegExs.addAll(template.serialWhitelist());
+      this.transaction.read(template.transaction());
+      this.statistics.read(template.statistics());
 
       return this;
    }

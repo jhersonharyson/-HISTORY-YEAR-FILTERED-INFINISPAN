@@ -6,13 +6,14 @@ import static org.testng.AssertJUnit.assertNull;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.util.ControlledTimeService;
-import org.infinispan.util.TimeService;
+import org.infinispan.commons.time.TimeService;
 import org.testng.annotations.Test;
 
 /**
@@ -115,6 +116,15 @@ public class ExpiryTest extends MultiHotRodServersTest {
       timeService.advance(EXPIRATION_TIMEOUT + 100);
       assertNull(cache.get(key));
    }
+
+   public void testLifespanMaxIdleOverflow() {
+      long time = 2147484L;
+      client(0).getCache().put(10, "v0", time, TimeUnit.SECONDS, time, TimeUnit.SECONDS);
+      MetadataValue<Object> withMetadata = client(0).getCache().getWithMetadata(10);
+      assertEquals(time, withMetadata.getLifespan());
+      assertEquals(time, withMetadata.getMaxIdle());
+   }
+
 
    private enum Req {
       PUT {

@@ -14,6 +14,7 @@ import org.infinispan.server.hotrod.counter.CounterManagerTestStrategy;
 import org.infinispan.server.hotrod.counter.impl.CounterManagerImplTestStrategy;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.util.logging.Log;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -28,6 +29,7 @@ public class RemoteCounterManagerTest extends AbstractCounterTest implements Cou
 
    private static final String PERSISTENT_LOCATION = TestingUtil.tmpDirectory("RemoteCounterManagerTest");
    private static final String TMP_LOCATION = PERSISTENT_LOCATION + File.separator + "tmp";
+   private static final String SHARED_LOCATION = PERSISTENT_LOCATION + File.separator + "shared";
    private final CounterManagerTestStrategy strategy;
 
 
@@ -35,9 +37,14 @@ public class RemoteCounterManagerTest extends AbstractCounterTest implements Cou
       strategy = new CounterManagerImplTestStrategy(this::allTestCounterManagers, this::log, this::cacheManager);
    }
 
-   @BeforeClass
-   public void cleanup() {
+   @BeforeClass(alwaysRun = true)
+   @Override
+   public void createBeforeClass() throws Throwable {
       Util.recursiveFileRemove(PERSISTENT_LOCATION);
+      if (!new File(PERSISTENT_LOCATION).mkdirs()) {
+         log.warnf("Unable to create persistent location file: '%s'", PERSISTENT_LOCATION);
+      }
+      super.createBeforeClass();
    }
 
    @Override
@@ -80,11 +87,21 @@ public class RemoteCounterManagerTest extends AbstractCounterTest implements Cou
       strategy.testGetCounterNames(method);
    }
 
+   @AfterClass(alwaysRun = true)
+   @Override
+   protected void destroy() {
+      super.destroy();
+      Util.recursiveFileRemove(PERSISTENT_LOCATION);
+   }
+
    @Override
    protected void modifyGlobalConfiguration(GlobalConfigurationBuilder builder) {
+      char id = 'A';
+      id += cacheManagers.size();
       builder.globalState().enable()
-            .persistentLocation(PERSISTENT_LOCATION)
-            .temporaryLocation(TMP_LOCATION);
+            .persistentLocation(PERSISTENT_LOCATION + File.separator + id)
+            .temporaryLocation(TMP_LOCATION)
+            .sharedPersistentLocation(SHARED_LOCATION);
    }
 
    private Log log() {

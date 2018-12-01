@@ -2,12 +2,16 @@ package org.infinispan.client.hotrod.impl.operations;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -19,20 +23,21 @@ import net.jcip.annotations.Immutable;
 @Immutable
 public class ContainsKeyOperation extends AbstractKeyOperation<Boolean> {
 
-   public ContainsKeyOperation(Codec codec, TransportFactory transportFactory, Object key, byte[] keyBytes,
-                               byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg) {
-      super(codec, transportFactory, key, keyBytes,cacheName, topologyId, flags, cfg);
+   public ContainsKeyOperation(Codec codec, ChannelFactory channelFactory, Object key, byte[] keyBytes,
+                               byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg,
+                               DataFormat dataFormat, ClientStatistics clientStatistics) {
+      super(CONTAINS_KEY_REQUEST, CONTAINS_KEY_RESPONSE, codec, channelFactory, key, keyBytes, cacheName, topologyId,
+            flags, cfg, dataFormat, clientStatistics);
    }
 
    @Override
-   protected Boolean executeOperation(Transport transport) {
-      boolean containsKey = false;
-      short status = sendKeyOperation(keyBytes, transport, CONTAINS_KEY_REQUEST, CONTAINS_KEY_RESPONSE);
-      if (HotRodConstants.isNotExist(status)) {
-         containsKey = false;
-      } else if (HotRodConstants.isSuccess(status)) {
-         containsKey = true;
-      }
-      return containsKey;
+   protected void executeOperation(Channel channel) {
+      scheduleRead(channel);
+      sendArrayOperation(channel, keyBytes);
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      complete(!HotRodConstants.isNotExist(status) && HotRodConstants.isSuccess(status));
    }
 }

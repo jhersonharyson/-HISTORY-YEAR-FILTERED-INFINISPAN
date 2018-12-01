@@ -6,12 +6,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -21,39 +25,65 @@ import net.jcip.annotations.Immutable;
  * @since 7.2
  */
 @Immutable
-public class GetAllOperation<K, V> extends RetryOnFailureOperation<Map<K, V>> {
+public class GetAllOperation<K, V> extends StatsAffectingRetryingOperation<Map<K, V>> {
 
-   public GetAllOperation(Codec codec, TransportFactory transportFactory,
+   private Map<K, V> result;
+   private int size = -1;
+
+   public GetAllOperation(Codec codec, ChannelFactory channelFactory,
                           Set<byte[]> keys, byte[] cacheName, AtomicInteger topologyId,
-                          int flags, Configuration cfg) {
-      super(codec, transportFactory, cacheName, topologyId, flags, cfg);
+                          int flags, Configuration cfg, DataFormat dataFormat, ClientStatistics clientStatistics) {
+      super(GET_ALL_REQUEST, GET_ALL_RESPONSE, codec, channelFactory, cacheName, topologyId, flags, cfg, dataFormat, clientStatistics);
       this.keys = keys;
    }
 
    protected final Set<byte[]> keys;
 
    @Override
-   protected Map<K, V> executeOperation(Transport transport) {
-      HeaderParams params = writeHeader(transport, GET_ALL_REQUEST);
-      transport.writeVInt(keys.size());
-      for (byte[] key : keys) {
-         transport.writeArray(key);
-      }
-      transport.flush();
+   protected void executeOperation(Channel channel) {
+      scheduleRead(channel);
 
-      short status = readHeaderAndValidate(transport, params);
-      int size = transport.readVInt();
-      Map<K, V> result = new HashMap<K, V>(size);
-      for (int i = 0; i < size; ++i) {
-         K key = codec.readUnmarshallByteArray(transport, status, cfg.serialWhitelist());
-         V value = codec.readUnmarshallByteArray(transport, status, cfg.serialWhitelist());
-         result.put(key, value);
+      int bufSize = codec.estimateHeaderSize(header) + ByteBufUtil.estimateVIntSize(keys.size());
+      for (byte[] key : keys) {
+         bufSize += ByteBufUtil.estimateArraySize(key);
       }
-      return result;
+      ByteBuf buf = channel.alloc().buffer(bufSize);
+
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeVInt(buf, keys.size());
+      for (byte[] key : keys) {
+         ByteBufUtil.writeArray(buf, key);
+      }
+      channel.writeAndFlush(buf);
    }
 
    @Override
-   protected Transport getTransport(int retryCount, Set<SocketAddress> failedServers) {
-      return transportFactory.getTransport(keys.iterator().next(), failedServers, cacheName);
+   protected void reset() {
+      super.reset();
+      result = null;
+      size = -1;
+   }
+
+   @Override
+   protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
+      channelFactory.fetchChannelAndInvoke(keys.iterator().next(), failedServers, cacheName, this);
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      if (size < 0) {
+         size = ByteBufUtil.readVInt(buf);
+         result = new HashMap<>(size);
+         decoder.checkpoint();
+      }
+      while (result.size() < size) {
+         K key = dataFormat.keyToObj(ByteBufUtil.readArray(buf), cfg.getClassWhiteList());
+         V value = dataFormat.valueToObj(ByteBufUtil.readArray(buf), cfg.getClassWhiteList());
+         result.put(key, value);
+         decoder.checkpoint();
+      }
+      statsDataRead(true, size);
+      statsDataRead(false, keys.size() - size);
+      complete(result);
    }
 }

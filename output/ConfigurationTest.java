@@ -4,6 +4,13 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.ASYNC_EX
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CALLBACK_HANDLER;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CLIENT_SUBJECT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_SERVER_NAME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CLUSTER_PROPERTIES_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_EXHAUSTED_ACTION;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_ACTIVE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_PENDING_REQUESTS;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_WAIT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MIN_IDLE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECT_TIMEOUT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.HASH_FUNCTION_PREFIX;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_SIZE_ESTIMATE;
@@ -11,6 +18,9 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STOR
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_FILE_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_PASSWORD;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.MAX_RETRIES;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.NEAR_CACHE_MAX_ENTRIES;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.NEAR_CACHE_MODE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.NEAR_CACHE_NAME_PATTERN;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.PROTOCOL_VERSION;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.REQUEST_BALANCING_STRATEGY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_MECHANISM;
@@ -23,7 +33,6 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SSL_CONT
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SSL_PROTOCOL;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TCP_KEEP_ALIVE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TCP_NO_DELAY;
-import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRANSPORT_FACTORY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRUST_STORE_FILE_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRUST_STORE_PASSWORD;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_AUTH;
@@ -42,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import javax.net.ssl.SSLContext;
 import javax.security.auth.Subject;
@@ -54,16 +64,14 @@ import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.SomeAsyncExecutorFactory;
 import org.infinispan.client.hotrod.SomeCustomConsistentHashV2;
 import org.infinispan.client.hotrod.SomeRequestBalancingStrategy;
-import org.infinispan.client.hotrod.SomeTransportfactory;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
-import org.infinispan.client.hotrod.impl.transport.tcp.SaslTransportObjectFactory;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.client.hotrod.security.BasicCallbackHandler;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.util.FileLookupFactory;
 import org.testng.annotations.Test;
 
-@Test(testName = "client.hotrod.configuration.ConfigurationTest", groups = "functional" )
+@Test(testName = "client.hotrod.configuration.ConfigurationTest", groups = "functional")
 public class ConfigurationTest {
 
    static final Map<String, Function<Configuration, ?>> OPTIONS = new HashMap<>();
@@ -71,17 +79,22 @@ public class ConfigurationTest {
 
    static {
       OPTIONS.put(ASYNC_EXECUTOR_FACTORY, c -> c.asyncExecutorFactory().factoryClass());
-      OPTIONS.put(REQUEST_BALANCING_STRATEGY, Configuration::balancingStrategyClass);
-      OPTIONS.put(TRANSPORT_FACTORY, Configuration::transportFactory);
+      OPTIONS.put(REQUEST_BALANCING_STRATEGY, c -> c.balancingStrategyFactory().get().getClass());
       OPTIONS.put("maxActive", c -> c.connectionPool().maxActive());
+      OPTIONS.put(CONNECTION_POOL_MAX_ACTIVE, c -> c.connectionPool().maxActive());
       OPTIONS.put("maxTotal", c -> c.connectionPool().maxTotal());
       OPTIONS.put("maxWait", c -> c.connectionPool().maxWait());
+      OPTIONS.put(CONNECTION_POOL_MAX_WAIT, c -> c.connectionPool().maxWait());
       OPTIONS.put("maxIdle", c -> c.connectionPool().maxIdle());
       OPTIONS.put("minIdle", c -> c.connectionPool().minIdle());
+      OPTIONS.put(CONNECTION_POOL_MIN_IDLE, c -> c.connectionPool().minIdle());
       OPTIONS.put("exhaustedAction", c -> c.connectionPool().exhaustedAction());
+      OPTIONS.put(CONNECTION_POOL_EXHAUSTED_ACTION, c -> c.connectionPool().exhaustedAction());
       OPTIONS.put("numTestsPerEvictionRun", c -> c.connectionPool().numTestsPerEvictionRun());
       OPTIONS.put("timeBetweenEvictionRunsMillis", c -> c.connectionPool().timeBetweenEvictionRuns());
       OPTIONS.put("minEvictableIdleTimeMillis", c -> c.connectionPool().minEvictableIdleTime());
+      OPTIONS.put(CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, c -> c.connectionPool().minEvictableIdleTime());
+      OPTIONS.put(CONNECTION_POOL_MAX_PENDING_REQUESTS, c -> c.connectionPool().maxPendingRequests());
       OPTIONS.put("testOnBorrow", c -> c.connectionPool().testOnBorrow());
       OPTIONS.put("testOnReturn", c -> c.connectionPool().testOnReturn());
       OPTIONS.put("testWhileIdle", c -> c.connectionPool().testWhileIdle());
@@ -111,18 +124,23 @@ public class ConfigurationTest {
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".B", c -> c.security().authentication().saslProperties().get("B"));
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".C", c -> c.security().authentication().saslProperties().get("C"));
       OPTIONS.put(JAVA_SERIAL_WHITELIST, Configuration::serialWhitelist);
+      OPTIONS.put(NEAR_CACHE_MODE, c -> c.nearCache().mode());
+      OPTIONS.put(NEAR_CACHE_MAX_ENTRIES, c -> c.nearCache().maxEntries());
+      OPTIONS.put(NEAR_CACHE_NAME_PATTERN, c -> c.nearCache().cacheNamePattern().pattern());
 
       TYPES.put(Boolean.class, b -> Boolean.toString((Boolean) b));
-      TYPES.put(ExhaustedAction.class, e -> Integer.toString(((ExhaustedAction) e).ordinal()));
+      TYPES.put(ExhaustedAction.class, e -> e.toString());
       TYPES.put(Class.class, c -> ((Class<?>) c).getName());
       TYPES.put(Integer.class, Object::toString);
       TYPES.put(Long.class, Object::toString);
-      TYPES.put(String.class, s -> s);
-      TYPES.put(SSLContext.class, s -> s);
-      TYPES.put(MyCallbackHandler.class, c -> c);
-      TYPES.put(Subject.class, s -> s);
+      TYPES.put(String.class, Function.identity());
+      TYPES.put(SSLContext.class, Function.identity());
+      TYPES.put(MyCallbackHandler.class, Function.identity());
+      TYPES.put(Subject.class, Function.identity());
       TYPES.put(ProtocolVersion.class, p -> p.toString());
+      TYPES.put(NearCacheMode.class, p -> p.toString());
       TYPES.put(mkClass(), l -> String.join(",", (List<String>) l));
+      TYPES.put(Pattern.class, Function.identity());
    }
 
    private static Class<?> mkClass() {
@@ -136,7 +154,9 @@ public class ConfigurationTest {
    CallbackHandler callbackHandler = new MyCallbackHandler();
 
    public static class MyCallbackHandler implements CallbackHandler {
-      @Override public void handle(Callback[] callbacks) {}
+      @Override
+      public void handle(Callback[] callbacks) {
+      }
    }
 
    Subject clientSubject = new Subject();
@@ -149,56 +169,65 @@ public class ConfigurationTest {
 
       ConfigurationBuilder builder = new ConfigurationBuilder();
       builder
-         .addServer()
+            .addServer()
             .host("host1")
             .port(11222)
-         .addServer()
+            .addServer()
             .host("host2")
             .port(11222)
-         .asyncExecutorFactory()
+            .asyncExecutorFactory()
             .factoryClass(SomeAsyncExecutorFactory.class)
-         .balancingStrategy(SomeRequestBalancingStrategy.class)
-         .connectionPool()
+            .balancingStrategy(SomeRequestBalancingStrategy.class)
+            .connectionPool()
             .maxActive(100)
-            .maxTotal(150)
             .maxWait(1000)
-            .maxIdle(20)
             .minIdle(10)
+            .minEvictableIdleTime(12000)
             .exhaustedAction(ExhaustedAction.WAIT)
+            .maxPendingRequests(12)
+            .maxIdle(20)
+            .maxTotal(150)
             .numTestsPerEvictionRun(5)
             .testOnBorrow(true)
             .testOnReturn(true)
             .testWhileIdle(false)
-            .minEvictableIdleTime(12000)
             .timeBetweenEvictionRuns(15000)
-         .connectionTimeout(100)
-         .version(ProtocolVersion.PROTOCOL_VERSION_13)
-         .consistentHashImpl(2, SomeCustomConsistentHashV2.class)
-         .socketTimeout(100)
-         .tcpNoDelay(false)
-         .keySizeEstimate(128)
-         .valueSizeEstimate(1024)
-         .maxRetries(0)
-         .tcpKeepAlive(true)
-         .transportFactory(SomeTransportfactory.class)
-         .security()
+            .connectionTimeout(100)
+            .version(ProtocolVersion.PROTOCOL_VERSION_13)
+            .consistentHashImpl(2, SomeCustomConsistentHashV2.class)
+            .socketTimeout(100)
+            .tcpNoDelay(false)
+            .keySizeEstimate(128)
+            .valueSizeEstimate(1024)
+            .maxRetries(0)
+            .tcpKeepAlive(true)
+            .security()
             .ssl()
-               .enable()
-               .keyStoreFileName("my-key-store.file")
-               .keyStorePassword("my-key-store.password".toCharArray())
-               .keyStoreCertificatePassword("my-key-store-certificate.password".toCharArray())
-               .trustStoreFileName("my-trust-store.file")
-               .trustStorePassword("my-trust-store.password".toCharArray())
-               .protocol("TLSv1.1")
-         .security()
+            .enable()
+            .keyStoreFileName("my-key-store.file")
+            .keyStorePassword("my-key-store.password".toCharArray())
+            .keyStoreCertificatePassword("my-key-store-certificate.password".toCharArray())
+            .trustStoreFileName("my-trust-store.file")
+            .trustStorePassword("my-trust-store.password".toCharArray())
+            .protocol("TLSv1.1")
+            .security()
             .authentication()
-               .enable()
-               .saslMechanism("my-sasl-mechanism")
-               .callbackHandler(callbackHandler)
-               .serverName("my-server-name")
-               .clientSubject(clientSubject)
-               .saslProperties(saslProperties)
-         .addJavaSerialWhiteList(".*Person.*", ".*Employee.*");
+            .enable()
+            .saslMechanism("my-sasl-mechanism")
+            .callbackHandler(callbackHandler)
+            .serverName("my-server-name")
+            .clientSubject(clientSubject)
+            .saslProperties(saslProperties)
+            .addJavaSerialWhiteList(".*Person.*", ".*Employee.*")
+            .nearCache()
+            .mode(NearCacheMode.INVALIDATED)
+            .maxEntries(10_000)
+            .cacheNamePattern("near.*")
+            .addCluster("siteA")
+               .addClusterNode("hostA1", 11222)
+               .addClusterNode("hostA2", 11223)
+            .addCluster("siteB")
+               .addClusterNodes("hostB1:11222; hostB2:11223");
 
       Configuration configuration = builder.build();
       validateConfiguration(configuration);
@@ -215,17 +244,17 @@ public class ConfigurationTest {
       p.setProperty(SERVER_LIST, "host1:11222; host2:11222");
       p.setProperty(ASYNC_EXECUTOR_FACTORY, "org.infinispan.client.hotrod.SomeAsyncExecutorFactory");
       p.setProperty(REQUEST_BALANCING_STRATEGY, "org.infinispan.client.hotrod.SomeRequestBalancingStrategy");
-      p.setProperty(TRANSPORT_FACTORY, "org.infinispan.client.hotrod.SomeTransportfactory");
       p.setProperty(HASH_FUNCTION_PREFIX + "." + 2, "org.infinispan.client.hotrod.SomeCustomConsistentHashV2");
-      p.setProperty("maxActive", "100");
+      p.setProperty(CONNECTION_POOL_MAX_ACTIVE, "100");
       p.setProperty("maxTotal", "150");
-      p.setProperty("maxWait", "1000");
+      p.setProperty(CONNECTION_POOL_MAX_WAIT, "1000");
       p.setProperty("maxIdle", "20");
-      p.setProperty("minIdle", "10");
-      p.setProperty("exhaustedAction", "1");
+      p.setProperty(CONNECTION_POOL_MIN_IDLE, "10");
+      p.setProperty(CONNECTION_POOL_EXHAUSTED_ACTION, ExhaustedAction.WAIT.name());
       p.setProperty("numTestsPerEvictionRun", "5");
       p.setProperty("timeBetweenEvictionRunsMillis", "15000");
-      p.setProperty("minEvictableIdleTimeMillis", "12000");
+      p.setProperty(CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, "12000");
+      p.setProperty(CONNECTION_POOL_MAX_PENDING_REQUESTS, "12");
       p.setProperty("testOnBorrow", "true");
       p.setProperty("testOnReturn", "true");
       p.setProperty("testWhileIdle", "false");
@@ -253,6 +282,11 @@ public class ConfigurationTest {
       p.setProperty(SASL_PROPERTIES_PREFIX + ".B", "2");
       p.setProperty(SASL_PROPERTIES_PREFIX + ".C", "3");
       p.setProperty(JAVA_SERIAL_WHITELIST, ".*Person.*,.*Employee.*");
+      p.setProperty(NEAR_CACHE_MODE, NearCacheMode.INVALIDATED.name());
+      p.setProperty(NEAR_CACHE_MAX_ENTRIES, "10000");
+      p.setProperty(NEAR_CACHE_NAME_PATTERN, "near.*");
+      p.setProperty(CLUSTER_PROPERTIES_PREFIX + ".siteA", "hostA1:11222; hostA2:11223");
+      p.setProperty(CLUSTER_PROPERTIES_PREFIX + ".siteB", "hostB1:11222; hostB2:11223");
 
       Configuration configuration = builder.withProperties(p).build();
       validateConfiguration(configuration);
@@ -282,10 +316,10 @@ public class ConfigurationTest {
    public void testSni() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
       builder.security()
-              .ssl()
-              .enable()
-              .sslContext(getSSLContext())
-              .sniHostName("sni");
+            .ssl()
+            .enable()
+            .sslContext(getSSLContext())
+            .sniHostName("sni");
 
       Configuration configuration = builder.build();
       validateSniContextConfiguration(configuration);
@@ -312,6 +346,8 @@ public class ConfigurationTest {
    public void testWithPropertiesSni() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
       Properties p = new Properties();
+      p.put(TRUST_STORE_FILE_NAME, "my-trust-store.file");
+      p.put(TRUST_STORE_PASSWORD, "my-trust-store.password");
       p.put(SNI_HOST_NAME, "sni");
       Configuration configuration = builder.withProperties(p).build();
       validateSniContextConfiguration(configuration);
@@ -348,7 +384,7 @@ public class ConfigurationTest {
    }
 
    public void testPropertyReplacement() throws IOException, UnsupportedCallbackException {
-      System.setProperty("test.property.server_list","myhost:12345");
+      System.setProperty("test.property.server_list", "myhost:12345");
       System.setProperty("test.property.marshaller", "org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller");
       System.setProperty("test.property.tcp_no_delay", "false");
       System.setProperty("test.property.tcp_keep_alive", "true");
@@ -392,7 +428,7 @@ public class ConfigurationTest {
       CallbackHandler callbackHandler = cfg.security().authentication().callbackHandler();
       assertEquals(BasicCallbackHandler.class, callbackHandler.getClass());
       NameCallback nameCallback = new NameCallback("name");
-      callbackHandler.handle(new Callback[] { nameCallback });
+      callbackHandler.handle(new Callback[]{nameCallback});
       assertEquals("testuser", nameCallback.getName());
    }
 
@@ -449,7 +485,8 @@ public class ConfigurationTest {
 
    public void testValidAuthenticationCBHNoSubject() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.security().authentication().enable().saslMechanism("PLAIN").callbackHandler(SaslTransportObjectFactory.NoOpCallbackHandler.INSTANCE);
+      builder.security().authentication().enable().saslMechanism("PLAIN").callbackHandler(callbacks -> {
+      });
       builder.build();
    }
 
@@ -473,23 +510,27 @@ public class ConfigurationTest {
    private void validateConfiguration(Configuration configuration) {
       assertEquals(2, configuration.servers().size());
       for (int i = 0; i < configuration.servers().size(); i++) {
-         assertEquals(String.format("host%d", i+1), configuration.servers().get(i).host());
+         assertEquals(String.format("host%d", i + 1), configuration.servers().get(i).host());
          assertEquals(11222, configuration.servers().get(i).port());
       }
       assertEqualsConfig(SomeAsyncExecutorFactory.class, ASYNC_EXECUTOR_FACTORY, configuration);
       assertEqualsConfig(SomeRequestBalancingStrategy.class, REQUEST_BALANCING_STRATEGY, configuration);
-      assertEqualsConfig(SomeTransportfactory.class, TRANSPORT_FACTORY, configuration);
       assertEquals(null, configuration.consistentHashImpl(1));
       assertEquals(SomeCustomConsistentHashV2.class, configuration.consistentHashImpl(2));
       assertEqualsConfig(100, "maxActive", configuration);
+      assertEqualsConfig(100, CONNECTION_POOL_MAX_ACTIVE, configuration);
       assertEqualsConfig(150, "maxTotal", configuration);
       assertEqualsConfig(1000L, "maxWait", configuration);
+      assertEqualsConfig(1000L, CONNECTION_POOL_MAX_WAIT, configuration);
       assertEqualsConfig(20, "maxIdle", configuration);
       assertEqualsConfig(10, "minIdle", configuration);
-      assertEqualsConfig(ExhaustedAction.WAIT, "exhaustedAction", configuration);
+      assertEqualsConfig(10, CONNECTION_POOL_MIN_IDLE, configuration);
+      assertEqualsConfig(ExhaustedAction.WAIT, CONNECTION_POOL_EXHAUSTED_ACTION, configuration);
       assertEqualsConfig(5, "numTestsPerEvictionRun", configuration);
       assertEqualsConfig(15000L, "timeBetweenEvictionRunsMillis", configuration);
       assertEqualsConfig(12000L, "minEvictableIdleTimeMillis", configuration);
+      assertEqualsConfig(12000L, CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, configuration);
+      assertEqualsConfig(12, CONNECTION_POOL_MAX_PENDING_REQUESTS, configuration);
       assertEqualsConfig(true, "testOnBorrow", configuration);
       assertEqualsConfig(true, "testOnReturn", configuration);
       assertEqualsConfig(false, "testWhileIdle", configuration);
@@ -517,6 +558,20 @@ public class ConfigurationTest {
       assertEqualsConfig("3", SASL_PROPERTIES_PREFIX + ".C", configuration);
       assertEqualsConfig(ProtocolVersion.PROTOCOL_VERSION_13, PROTOCOL_VERSION, configuration);
       assertEqualsConfig(Arrays.asList(".*Person.*", ".*Employee.*"), JAVA_SERIAL_WHITELIST, configuration);
+      assertEqualsConfig(NearCacheMode.INVALIDATED, NEAR_CACHE_MODE, configuration);
+      assertEqualsConfig(10_000, NEAR_CACHE_MAX_ENTRIES, configuration);
+      assertEqualsConfig("near.*", NEAR_CACHE_NAME_PATTERN, configuration);
+      assertEquals(2, configuration.clusters().size());
+      assertEquals("siteA", configuration.clusters().get(0).getClusterName());
+      assertEquals("hostA1", configuration.clusters().get(0).getCluster().get(0).host());
+      assertEquals(11222, configuration.clusters().get(0).getCluster().get(0).port());
+      assertEquals("hostA2", configuration.clusters().get(0).getCluster().get(1).host());
+      assertEquals(11223, configuration.clusters().get(0).getCluster().get(1).port());
+      assertEquals("siteB", configuration.clusters().get(1).getClusterName());
+      assertEquals("hostB1", configuration.clusters().get(1).getCluster().get(0).host());
+      assertEquals(11222, configuration.clusters().get(1).getCluster().get(0).port());
+      assertEquals("hostB2", configuration.clusters().get(1).getCluster().get(1).host());
+      assertEquals(11223, configuration.clusters().get(1).getCluster().get(1).port());
    }
 
    private void validateSSLContextConfiguration(Configuration configuration) {

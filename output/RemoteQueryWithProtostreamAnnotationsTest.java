@@ -29,7 +29,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
- * Tests for remote queries over HotRod using protostream annotations on a local cache using RAM directory.
+ * Tests for remote queries over HotRod using protostream annotations on a local cache using indexing in RAM.
  *
  * @author Adrian Nistor
  */
@@ -45,6 +45,14 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
       private String text;
 
       private Author author;
+
+      public Memo(int id, String text) {
+         this.id = id;
+         this.text = text;
+      }
+
+      public Memo() {
+      }
 
       @ProtoDoc("@Field(index = Index.NO, store = Store.NO)")
       @ProtoField(number = 10, required = true)
@@ -87,6 +95,14 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
       private int id;
 
       private String name;
+
+      public Author(int id, String name) {
+         this.id = id;
+         this.name = name;
+      }
+
+      public Author() {
+      }
 
       public int getId() {
          return id;
@@ -157,7 +173,7 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
          }
 
          @Override
-         public Class<? extends Author> getJavaClass() {
+         public Class<Author> getJavaClass() {
             return Author.class;
          }
 
@@ -179,7 +195,7 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
       assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
    }
 
-   public void testAttributeQuery() throws Exception {
+   public void testAttributeQuery() {
       RemoteCache<Integer, Memo> remoteCache = remoteCacheManager.getCache();
 
       remoteCache.put(1, createMemo1());
@@ -212,24 +228,14 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
    }
 
    private Memo createMemo1() {
-      Author author = new Author();
-      author.setId(1);
-      author.setName("Tom");
-      Memo memo = new Memo();
-      memo.setId(1);
-      memo.setText("Lorem ipsum");
-      memo.setAuthor(author);
+      Memo memo = new Memo(1, "Lorem ipsum");
+      memo.setAuthor(new Author(1, "Tom"));
       return memo;
    }
 
    private Memo createMemo2() {
-      Author author = new Author();
-      author.setId(2);
-      author.setName("Adrian");
-      Memo memo = new Memo();
-      memo.setId(2);
-      memo.setText("Sed ut perspiciatis unde omnis iste natus error");
-      memo.setAuthor(author);
+      Memo memo = new Memo(2, "Sed ut perspiciatis unde omnis iste natus error");
+      memo.setAuthor(new Author(2, "Adrian"));
       return memo;
    }
 

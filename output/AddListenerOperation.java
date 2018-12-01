@@ -6,12 +6,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 import org.infinispan.counter.api.CounterListener;
 import org.infinispan.counter.api.StrongCounter;
 import org.infinispan.counter.api.WeakCounter;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 
 /**
  * An add listener operation for {@link StrongCounter#addListener(CounterListener)} and {@link
@@ -24,46 +27,70 @@ public class AddListenerOperation extends BaseCounterOperation<Boolean> {
 
    private final byte[] listenerId;
    private final SocketAddress server;
-   private Transport dedicatedTransport;
+   private Channel channel;
 
-   public AddListenerOperation(Codec codec, TransportFactory transportFactory, AtomicInteger topologyId,
-         Configuration cfg, String counterName, byte[] listenerId, SocketAddress server) {
-      super(codec, transportFactory, topologyId, cfg, counterName);
+   public AddListenerOperation(Codec codec, ChannelFactory channelFactory, AtomicInteger topologyId,
+                               Configuration cfg, String counterName, byte[] listenerId, SocketAddress server) {
+      super(COUNTER_ADD_LISTENER_REQUEST, COUNTER_ADD_LISTENER_RESPONSE, codec, channelFactory, topologyId, cfg, counterName);
       this.listenerId = listenerId;
       this.server = server;
    }
 
-   public Transport getDedicatedTransport() {
-      return dedicatedTransport;
+   public Channel getChannel() {
+      return channel;
    }
 
    @Override
-   protected Boolean executeOperation(Transport transport) {
-      HeaderParams header = writeHeaderAndCounterName(transport, COUNTER_ADD_LISTENER_REQUEST);
-      transport.writeArray(listenerId);
-      transport.flush();
+   protected void executeOperation(Channel channel) {
+      this.channel = channel;
+      ByteBuf buf = getHeaderAndCounterNameBufferAndRead(channel, ByteBufUtil.estimateArraySize(listenerId));
+      ByteBufUtil.writeArray(buf, listenerId);
+      channel.writeAndFlush(buf);
+   }
 
-      short status = readHeaderAndValidateCounter(transport, header);
-      if (status == NO_ERROR_STATUS) {
-         dedicatedTransport = transport; //this transport will be used!
-         return true;
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      checkStatus(status);
+      if (status != NO_ERROR_STATUS) {
+         complete(false);
+      } else {
+         decoder.addListener(listenerId);
+         complete(true);
       }
-      return false;
    }
 
    @Override
-   protected Transport getTransport(int retryCount, Set<SocketAddress> failedServers) {
-      //we have a dedicated connection to "server". lets try to register new counter in that server!
-      return server == null ?
-             super.getTransport(retryCount, failedServers) :
-             transportFactory.getAddressTransport(server);
-   }
-
-   @Override
-   protected void releaseTransport(Transport transport) {
-      if (dedicatedTransport != transport) {
-         //we aren't using this transport. we can release it
-         super.releaseTransport(transport);
+   protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
+      if (server == null) {
+         super.fetchChannelAndInvoke(retryCount, failedServers);
+      } else {
+         channelFactory.fetchChannelAndInvoke(server, this);
       }
+   }
+
+   @Override
+   public void releaseChannel(Channel channel) {
+      if (codec.allowOperationsAndEvents()) {
+         //we aren't using this channel. we can release it
+         super.releaseChannel(channel);
+      }
+   }
+
+   public void cleanup() {
+      // To prevent releasing concurrently from the channel and closing it
+      channel.eventLoop().execute(() -> {
+         if (trace) {
+            log.tracef("Cleanup for %s on %s", this, channel);
+         }
+         if (!codec.allowOperationsAndEvents()) {
+            if (channel.isOpen()) {
+               super.releaseChannel(channel);
+            }
+         }
+         HeaderDecoder decoder = channel.pipeline().get(HeaderDecoder.class);
+         if (decoder != null) {
+            decoder.removeListener(listenerId);
+         }
+      });
    }
 }

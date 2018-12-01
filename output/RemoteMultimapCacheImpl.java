@@ -38,18 +38,20 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
 
    private RemoteCacheImpl<K, Collection<V>> cache;
    private final RemoteCacheManager remoteCacheManager;
-   protected MultimapOperationsFactory operationsFactory;
+   private MultimapOperationsFactory operationsFactory;
    private Marshaller marshaller;
    private int estimateKeySize;
    private int estimateValueSize;
-   protected long defaultLifespan;
-   protected long defaultMaxIdleTime;
+   private long defaultLifespan = 0;
+   private long defaultMaxIdleTime = 0;
 
    public void init() {
-      operationsFactory = new MultimapOperationsFactory(remoteCacheManager.getTransportFactory(),
+      operationsFactory = new MultimapOperationsFactory(remoteCacheManager.getChannelFactory(),
             cache.getName(),
             remoteCacheManager.getCodec(),
-            remoteCacheManager.getConfiguration());
+            remoteCacheManager.getConfiguration(),
+            cache.getDataFormat(),
+            cache.getClientStatistics());
       this.marshaller = remoteCacheManager.getMarshaller();
       this.estimateKeySize = remoteCacheManager.getConfiguration().keySizeEstimate();
       this.estimateValueSize = remoteCacheManager.getConfiguration().valueSizeEstimate();
@@ -69,13 +71,13 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to add (K,V): (%s, %s) lifespan:%d, maxIdle:%d", key, value, defaultLifespan, defaultMaxIdleTime);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
       byte[] marshallValue = MarshallerUtil.obj2bytes(marshaller, value, false, estimateKeySize, estimateValueSize);
 
-      PutKeyValueMultimapOperation<Void> op = operationsFactory.newPutKeyValueOperation(compatKey,
+      PutKeyValueMultimapOperation op = operationsFactory.newPutKeyValueOperation(objectKey,
             marshallKey, marshallValue, defaultLifespan, MILLISECONDS, defaultMaxIdleTime, MILLISECONDS);
-      return CompletableFuture.runAsync(() -> op.execute());
+      return op.execute();
    }
 
    @Override
@@ -84,11 +86,11 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to call get (K): (%s)", key);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
 
-      GetKeyMultimapOperation<V> gco = operationsFactory.newGetKeyMultimapOperation(compatKey, marshallKey);
-      return CompletableFuture.supplyAsync(() -> gco.execute());
+      GetKeyMultimapOperation<V> gco = operationsFactory.newGetKeyMultimapOperation(objectKey, marshallKey);
+      return gco.execute();
    }
 
    @Override
@@ -97,11 +99,11 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to call getWithMetadata (K): (%s)", key);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
       GetKeyWithMetadataMultimapOperation<V> operation
-            = operationsFactory.newGetKeyWithMetadataMultimapOperation(compatKey, marshallKey);
-      return CompletableFuture.supplyAsync(() -> operation.execute());
+            = operationsFactory.newGetKeyWithMetadataMultimapOperation(objectKey, marshallKey);
+      return operation.execute();
    }
 
    @Override
@@ -110,10 +112,10 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to remove (K): (%s)", key);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
-      RemoveKeyMultimapOperation removeOperation = operationsFactory.newRemoveKeyOperation(compatKey, marshallKey);
-      return CompletableFuture.supplyAsync(() -> removeOperation.execute());
+      RemoveKeyMultimapOperation removeOperation = operationsFactory.newRemoveKeyOperation(objectKey, marshallKey);
+      return removeOperation.execute();
    }
 
    @Override
@@ -122,11 +124,11 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to remove (K,V): (%s, %s)", key, value);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
       byte[] marshallValue = MarshallerUtil.obj2bytes(marshaller, value, false, estimateKeySize, estimateValueSize);
-      RemoveEntryMultimapOperation removeOperation = operationsFactory.newRemoveEntryOperation(compatKey, marshallKey, marshallValue);
-      return CompletableFuture.supplyAsync(() -> removeOperation.execute());
+      RemoveEntryMultimapOperation removeOperation = operationsFactory.newRemoveEntryOperation(objectKey, marshallKey, marshallValue);
+      return removeOperation.execute();
    }
 
    @Override
@@ -135,10 +137,10 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to call contains (K): (%s)", key);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
-      ContainsKeyMultimapOperation containsKeyOperation = operationsFactory.newContainsKeyOperation(compatKey, marshallKey);
-      return CompletableFuture.supplyAsync(() -> containsKeyOperation.execute());
+      ContainsKeyMultimapOperation containsKeyOperation = operationsFactory.newContainsKeyOperation(objectKey, marshallKey);
+      return containsKeyOperation.execute();
    }
 
    @Override
@@ -149,7 +151,7 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
       assertRemoteCacheManagerIsStarted();
       byte[] marshallValue = MarshallerUtil.obj2bytes(marshaller, value, false, estimateKeySize, estimateValueSize);
       ContainsValueMultimapOperation containsValueOperation = operationsFactory.newContainsValueOperation(marshallValue);
-      return CompletableFuture.supplyAsync(() -> containsValueOperation.execute());
+      return containsValueOperation.execute();
    }
 
    @Override
@@ -158,11 +160,11 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.tracef("About to call contais(K,V): (%s, %s)", key, value);
       }
       assertRemoteCacheManagerIsStarted();
-      K compatKey = hasCompatibility() ? key : null;
+      K objectKey = isObjectStorage() ? key : null;
       byte[] marshallKey = MarshallerUtil.obj2bytes(marshaller, key, true, estimateKeySize, estimateValueSize);
       byte[] marshallValue = MarshallerUtil.obj2bytes(marshaller, value, false, estimateKeySize, estimateValueSize);
-      ContainsEntryMultimapOperation containsOperation = operationsFactory.newContainsEntryOperation(compatKey, marshallKey, marshallValue);
-      return CompletableFuture.supplyAsync(() -> containsOperation.execute());
+      ContainsEntryMultimapOperation containsOperation = operationsFactory.newContainsEntryOperation(objectKey, marshallKey, marshallValue);
+      return containsOperation.execute();
    }
 
    @Override
@@ -171,7 +173,7 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
          log.trace("About to call size");
       }
       assertRemoteCacheManagerIsStarted();
-      return CompletableFuture.supplyAsync(() -> operationsFactory.newSizeOperation().execute());
+      return operationsFactory.newSizeOperation().execute();
    }
 
    @Override
@@ -189,7 +191,7 @@ public class RemoteMultimapCacheImpl<K, V> implements RemoteMultimapCache<K, V> 
       }
    }
 
-   private boolean hasCompatibility() {
-      return cache.hasCompatibility();
+   private boolean isObjectStorage() {
+      return cache.isObjectStorage();
    }
 }

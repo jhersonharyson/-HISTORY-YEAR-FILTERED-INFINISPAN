@@ -27,7 +27,7 @@ import org.testng.annotations.Test;
 /**
  * Tests the named cache injection.
  *
- * @author Kevin Pollet <kevin.pollet@serli.com> (C) 2011 SERLI
+ * @author Kevin Pollet &lt;kevin.pollet@serli.com&gt; (C) 2011 SERLI
  */
 @Listeners(TestResourceTrackingListener.class)
 @Test(groups = {"functional", "smoke"}, testName = "cdi.test.cache.remote.NamedCacheTest")
@@ -65,8 +65,8 @@ public class NamedCacheTest extends Arquillian {
 
    @AfterClass(alwaysRun = true)
    public void afterMethod() {
-      if (embeddedCacheManager != null) embeddedCacheManager.stop();
       if (hotRodServer != null) hotRodServer.stop();
+      if (embeddedCacheManager != null) embeddedCacheManager.stop();
    }
 
    public void testNamedCache() {

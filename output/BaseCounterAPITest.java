@@ -4,23 +4,24 @@ import static org.infinispan.server.hotrod.counter.impl.BaseCounterImplTest.asse
 import static org.infinispan.server.hotrod.counter.impl.BaseCounterImplTest.assertNoEvents;
 import static org.infinispan.server.hotrod.counter.impl.BaseCounterImplTest.assertValidEvent;
 import static org.infinispan.test.TestingUtil.extractField;
+import static org.infinispan.test.TestingUtil.waitForNoRebalance;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
-import org.infinispan.client.hotrod.counter.impl.ConnectionManager;
 import org.infinispan.client.hotrod.counter.impl.NotificationManager;
 import org.infinispan.client.hotrod.counter.impl.RemoteCounterManager;
-import org.infinispan.commons.util.ReflectionUtil;
 import org.infinispan.counter.api.CounterEvent;
 import org.infinispan.counter.api.CounterListener;
 import org.infinispan.counter.api.Handle;
+import org.infinispan.counter.impl.CounterModuleLifecycle;
 import org.infinispan.server.hotrod.counter.impl.BaseCounterImplTest;
+import org.infinispan.test.ExceptionRunnable;
 import org.testng.annotations.Test;
 
 /**
@@ -72,7 +73,7 @@ public abstract class BaseCounterAPITest<T> extends AbstractCounterTest {
       handleEx.remove();
    }
 
-   public void testConcurrentListenerAddAndRemove(Method method) throws InterruptedException, ExecutionException {
+   public void testConcurrentListenerAddAndRemove(Method method) throws InterruptedException {
       String counterName = method.getName();
       defineAndCreateCounter(counterName, 1);
       List<T> counters = getCounters(counterName);
@@ -122,22 +123,27 @@ public abstract class BaseCounterAPITest<T> extends AbstractCounterTest {
 
       assert killIndex != -1;
 
-      killServer(killIndex);
+      try {
+         killServer(killIndex);
 
-      add(counter, 1, 4);
-      add(counter, 1, 5);
+         add(counter, 1, 4);
+         add(counter, 1, 5);
 
-      //sometimes, it takes some time to reconnect.
-      //In any case, the first operation triggers a new topology and it should be reconnect after it!
-      CounterEvent event = handle.getCounterListener().waitingPoll();
-      if (event.getOldValue() == 3) {
-         assertValidEvent(event, 3, 4);
-         assertNextValidEvent(handle, 4, 5);
-      } else {
-         assertValidEvent(event, 4, 5);
+         //sometimes, it takes some time to reconnect.
+         //In any case, the first operation triggers a new topology and it should be reconnect after it!
+         CounterEvent event = handle.getCounterListener().waitingPoll();
+         if (event.getOldValue() == 3) {
+            assertValidEvent(event, 3, 4);
+            assertNextValidEvent(handle, 4, 5);
+         } else {
+            assertValidEvent(event, 4, 5);
+         }
+
+         handle.remove();
+      } finally {
+         // Make sure that we don't disturb other tests by ongoing rebalance
+         waitForNoRebalance(caches(CounterModuleLifecycle.COUNTER_CACHE_NAME));
       }
-
-      handle.remove();
    }
 
    abstract void increment(T counter);
@@ -150,12 +156,11 @@ public abstract class BaseCounterAPITest<T> extends AbstractCounterTest {
 
    abstract List<T> getCounters(String name);
 
-   private InetSocketAddress findEventServer() throws InvocationTargetException, IllegalAccessException {
+   private InetSocketAddress findEventServer() {
       Object notificationManager = extractField(RemoteCounterManager.class, counterManager(), "notificationManager");
-      Object connectionManager = extractField(NotificationManager.class, notificationManager, "connectionManager");
-      Method method = ReflectionUtil.findMethod(ConnectionManager.class, "getServerInUse");
-      method.setAccessible(true);
-      return (InetSocketAddress) method.invoke(connectionManager);
+      Object dispatcher = extractField(NotificationManager.class, notificationManager, "dispatcher");
+      SocketAddress address = extractField(dispatcher, "address");
+      return (InetSocketAddress) address;
    }
 
    private void awaitFuture(Future<?> future) {
@@ -182,7 +187,7 @@ public abstract class BaseCounterAPITest<T> extends AbstractCounterTest {
    }
 
 
-   private class IncrementTask implements Runnable {
+   private class IncrementTask implements ExceptionRunnable {
 
       private final T counter;
       private volatile boolean run;

@@ -7,9 +7,9 @@ import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheCon
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
-import static org.testng.AssertJUnit.assertNull;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -301,8 +301,8 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
       }
       try {
          // no more elements expected here
-         Object e = queue.poll(5, TimeUnit.SECONDS);
-         assertNull("No more elements expected in queue!", e);
+         Object e = queue.poll(100, TimeUnit.MILLISECONDS);
+         assertEquals("No more elements expected in queue!", null, e);
       } catch (InterruptedException e) {
          throw new AssertionError("Interrupted while waiting for condition", e);
       }
@@ -313,7 +313,7 @@ public class RemoteListenerWithDslFilterTest extends MultiHotRodServersTest {
          useRawData = true, includeCurrentState = true)
    private static class ClientEntryListener {
 
-      private final Log log = LogFactory.getLog(getClass());
+      private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
 
       public final BlockingQueue<FilterResult> createEvents = new LinkedBlockingQueue<>();
 

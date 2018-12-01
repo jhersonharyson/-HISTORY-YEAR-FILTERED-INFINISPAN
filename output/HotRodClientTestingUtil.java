@@ -6,18 +6,24 @@ import static org.infinispan.server.core.test.ServerTestingUtil.findFreePort;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Random;
 import java.util.function.Consumer;
 
+import javax.management.ObjectName;
+
 import org.infinispan.Cache;
+import org.infinispan.client.hotrod.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.configuration.StatisticsConfiguration;
 import org.infinispan.client.hotrod.event.RemoteCacheSupplier;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
-import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
-import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
+import org.infinispan.client.hotrod.impl.transaction.TransactionTable;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.commons.api.BasicCache;
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
@@ -32,6 +38,7 @@ import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuild
 import org.infinispan.server.hotrod.test.HotRodTestingUtil;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.util.logging.LogFactory;
+import org.testng.AssertJUnit;
 
 /**
  * Utility methods for the Hot Rod client
@@ -71,7 +78,7 @@ public class HotRodClientTestingUtil {
    /**
     * Kills a group of remote cache managers.
     *
-    * @param rcm the remote cache manager instances to kill
+    * @param rcms the remote cache manager instances to kill
     */
    public static void killRemoteCacheManagers(RemoteCacheManager... rcms) {
       if (rcms != null) {
@@ -278,13 +285,13 @@ public class HotRodClientTestingUtil {
    }
 
    public static <T extends FailoverRequestBalancingStrategy> T getLoadBalancer(RemoteCacheManager client) {
-      TcpTransportFactory transportFactory = null;
+      ChannelFactory channelFactory;
       if (client instanceof InternalRemoteCacheManager) {
-         transportFactory = (TcpTransportFactory) ((InternalRemoteCacheManager) client).getTransportFactory();
+         channelFactory = ((InternalRemoteCacheManager) client).getChannelFactory();
       } else {
-         transportFactory = TestingUtil.extractField(client, "transportFactory");
+         channelFactory = TestingUtil.extractField(client, "channelFactory");
       }
-      return (T) transportFactory.getBalancer(HotRodConstants.DEFAULT_CACHE_NAME_BYTES);
+      return (T) channelFactory.getBalancer(HotRodConstants.DEFAULT_CACHE_NAME_BYTES);
    }
 
 
@@ -341,6 +348,29 @@ public class HotRodClientTestingUtil {
       } catch (IOException e) {
          throw new AssertionError(e);
       }
+   }
+
+   public static void assertNoTransaction(Collection<RemoteCacheManager> cacheManagers) {
+      cacheManagers.forEach(HotRodClientTestingUtil::assertNoTransaction);
+   }
+
+   public static void assertNoTransaction(RemoteCacheManager cacheManager) {
+      for (String tableName : Arrays.asList("syncTransactionTable", "xaTransactionTable")) {
+         TransactionTable table = TestingUtil.extractField(cacheManager, tableName);
+         Map<?, ?> txs = TestingUtil.extractField(table, "registeredTransactions");
+         log.tracef("Pending Transactions in %s: %s", cacheManager, txs.keySet());
+         AssertJUnit.assertEquals(0, txs.size());
+      }
+   }
+
+   public static ObjectName remoteCacheManagerObjectName(RemoteCacheManager rcm) throws Exception {
+      StatisticsConfiguration cfg = rcm.getConfiguration().statistics();
+      return new ObjectName(String.format("%s:type=HotRodClient,name=%s", cfg.jmxDomain(), cfg.jmxName()));
+   }
+
+   public static ObjectName remoteCacheObjectName(RemoteCacheManager rcm, String cacheName) throws Exception {
+      StatisticsConfiguration cfg = rcm.getConfiguration().statistics();
+      return new ObjectName(String.format("%s:type=HotRodClient,name=%s,cache=%s", cfg.jmxDomain(), cfg.jmxName(), cacheName));
    }
 
 }

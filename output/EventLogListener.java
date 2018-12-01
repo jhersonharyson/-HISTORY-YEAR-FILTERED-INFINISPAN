@@ -98,16 +98,16 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
    public void expectNoEvents(ClientEvent.Type type) {
       switch (type) {
          case CLIENT_CACHE_ENTRY_CREATED:
-            assertEquals(0, createdEvents.size());
+            assertEquals(createdEvents.toString(), 0, createdEvents.size());
             break;
          case CLIENT_CACHE_ENTRY_MODIFIED:
-            assertEquals(0, modifiedEvents.size());
+            assertEquals(modifiedEvents.toString(), 0, modifiedEvents.size());
             break;
          case CLIENT_CACHE_ENTRY_REMOVED:
-            assertEquals(0, removedEvents.size());
+            assertEquals(removedEvents.toString(), 0, removedEvents.size());
             break;
          case CLIENT_CACHE_ENTRY_EXPIRED:
-            assertEquals(0, expiredEvents.size());
+            assertEquals(expiredEvents.toString(), 0, expiredEvents.size());
             break;
       }
    }
@@ -238,27 +238,27 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
    }
 
    @NamedFactory(name = "static-filter-factory")
-   public static class StaticCacheEventFilterFactory implements CacheEventFilterFactory {
-      private final int staticKey;
+   public static class StaticCacheEventFilterFactory<K> implements CacheEventFilterFactory {
+      private final K staticKey;
 
-      public StaticCacheEventFilterFactory(int staticKey) {
+      public StaticCacheEventFilterFactory(K staticKey) {
          this.staticKey = staticKey;
       }
 
       @Override
-      public CacheEventFilter<Integer, String> getFilter(final Object[] params) {
+      public CacheEventFilter<K, String> getFilter(final Object[] params) {
          return new StaticCacheEventFilter(staticKey);
       }
 
-      static class StaticCacheEventFilter implements CacheEventFilter<Integer, String>, Serializable, ExternalPojo {
-         final Integer staticKey;
+      static class StaticCacheEventFilter<K> implements CacheEventFilter<K, String>, Serializable, ExternalPojo {
+         final K staticKey;
 
-         StaticCacheEventFilter(Integer staticKey) {
+         StaticCacheEventFilter(K staticKey) {
             this.staticKey = staticKey;
          }
 
          @Override
-         public boolean accept(Integer key, String previousValue, Metadata previousMetadata, String value,
+         public boolean accept(K key, String previousValue, Metadata previousMetadata, String value,
                                Metadata metadata, EventType eventType) {
             return staticKey.equals(key);
          }

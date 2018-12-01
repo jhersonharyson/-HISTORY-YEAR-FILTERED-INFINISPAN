@@ -6,14 +6,17 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Supplier;
 
+import org.infinispan.client.hotrod.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.transport.TransportFactory;
-import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
 import org.infinispan.commons.configuration.BuiltBy;
+import org.infinispan.commons.configuration.ClassWhiteList;
 import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.util.Features;
 import org.infinispan.commons.util.TypedProperties;
 
 /**
@@ -26,8 +29,7 @@ import org.infinispan.commons.util.TypedProperties;
 public class Configuration {
 
    private final ExecutorFactoryConfiguration asyncExecutorFactory;
-   private final Class<? extends FailoverRequestBalancingStrategy> balancingStrategyClass;
-   private final FailoverRequestBalancingStrategy balancingStrategy;
+   private final Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory;
    private final WeakReference<ClassLoader> classLoader;
    private final ClientIntelligence clientIntelligence;
    private final ConnectionPoolConfiguration connectionPool;
@@ -43,23 +45,26 @@ public class Configuration {
    private final SecurityConfiguration security;
    private final boolean tcpNoDelay;
    private final boolean tcpKeepAlive;
-   private final Class<? extends TransportFactory> transportFactory;
    private final int valueSizeEstimate;
    private final int maxRetries;
    private final NearCacheConfiguration nearCache;
    private final List<ClusterConfiguration> clusters;
    private final List<String> serialWhitelist;
    private final int batchSize;
+   private final ClassWhiteList classWhiteList;
+   private final StatisticsConfiguration statistics;
+   private final TransactionConfiguration transaction;
+   private final Features features;
 
-   Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Class<? extends FailoverRequestBalancingStrategy> balancingStrategyClass, FailoverRequestBalancingStrategy balancingStrategy, ClassLoader classLoader,
-         ClientIntelligence clientIntelligence, ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate,
-         Marshaller marshaller, Class<? extends Marshaller> marshallerClass,
-         ProtocolVersion protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
-         Class<? extends TransportFactory> transportFactory, int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
-         List<ClusterConfiguration> clusters, List<String> serialWhitelist, int batchSize) {
+   Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory, ClassLoader classLoader,
+                 ClientIntelligence clientIntelligence, ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate,
+                 Marshaller marshaller, Class<? extends Marshaller> marshallerClass,
+                 ProtocolVersion protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
+                 int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
+                 List<ClusterConfiguration> clusters, List<String> serialWhitelist, int batchSize,
+                 TransactionConfiguration transaction, StatisticsConfiguration statistics, Features features) {
       this.asyncExecutorFactory = asyncExecutorFactory;
-      this.balancingStrategyClass = balancingStrategyClass;
-      this.balancingStrategy = balancingStrategy;
+      this.balancingStrategyFactory = balancingStrategyFactory;
       this.maxRetries = maxRetries;
       this.classLoader = new WeakReference<>(classLoader);
       this.clientIntelligence = clientIntelligence;
@@ -76,24 +81,53 @@ public class Configuration {
       this.security = security;
       this.tcpNoDelay = tcpNoDelay;
       this.tcpKeepAlive = tcpKeepAlive;
-      this.transportFactory = transportFactory;
       this.valueSizeEstimate = valueSizeEstimate;
       this.nearCache = nearCache;
       this.clusters = clusters;
       this.serialWhitelist = serialWhitelist;
+      this.classWhiteList = new ClassWhiteList(serialWhitelist);
       this.batchSize = batchSize;
+      this.transaction = transaction;
+      this.statistics = statistics;
+      this.features = features;
    }
 
    public ExecutorFactoryConfiguration asyncExecutorFactory() {
       return asyncExecutorFactory;
    }
 
-   public Class<? extends FailoverRequestBalancingStrategy> balancingStrategyClass() {
-      return balancingStrategyClass;
+   /**
+    * Use {@link #balancingStrategyFactory()} instead.
+    *
+    * @deprecated since 9.3
+    */
+   @Deprecated
+   public Class<? extends org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy> balancingStrategyClass() {
+      FailoverRequestBalancingStrategy strategy = balancingStrategyFactory.get();
+      if (org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy.class.isInstance(strategy)) {
+         return (Class<? extends org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy>) strategy.getClass();
+      } else {
+         return org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy.class;
+      }
    }
 
-   public FailoverRequestBalancingStrategy balancingStrategy() {
-      return balancingStrategy;
+   /**
+    * Use {@link #balancingStrategyFactory()} instead.
+    *
+    * @deprecated since 9.3
+    */
+   @Deprecated
+   public org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy balancingStrategy() {
+      FailoverRequestBalancingStrategy strategy = balancingStrategyFactory.get();
+      if (org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy.class.isInstance(strategy)) {
+         return (org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy) strategy;
+      } else {
+         return null;
+      }
+   }
+
+   public Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory() {
+      return balancingStrategyFactory;
    }
 
    @Deprecated
@@ -118,7 +152,7 @@ public class Configuration {
    }
 
    public Class<? extends ConsistentHash> consistentHashImpl(int version) {
-      return consistentHashImpl[version-1];
+      return consistentHashImpl[version - 1];
    }
 
    public boolean forceReturnValues() {
@@ -177,8 +211,9 @@ public class Configuration {
       return tcpKeepAlive;
    }
 
+   @Deprecated
    public Class<? extends TransportFactory> transportFactory() {
-      return transportFactory;
+      return TransportFactory.class;
    }
 
    public int valueSizeEstimate() {
@@ -193,35 +228,54 @@ public class Configuration {
       return serialWhitelist;
    }
 
+   public ClassWhiteList getClassWhiteList() {
+      return classWhiteList;
+   }
+
    public int batchSize() {
       return batchSize;
    }
 
+   public StatisticsConfiguration statistics() {
+      return statistics;
+   }
+
+   public TransactionConfiguration transaction() {
+      return transaction;
+   }
+
+   public Features features() {
+      return features;
+   }
+
    @Override
    public String toString() {
-      return "Configuration [asyncExecutorFactory=" + asyncExecutorFactory + ", balancingStrategyClass=" + balancingStrategyClass + ", balancingStrategy=" + balancingStrategy
+      return "Configuration [asyncExecutorFactory=" + asyncExecutorFactory + ", balancingStrategyFactory=()->" + balancingStrategyFactory.get()
             + ",classLoader=" + classLoader + ", clientIntelligence=" + clientIntelligence + ", connectionPool="
             + connectionPool + ", connectionTimeout=" + connectionTimeout + ", consistentHashImpl=" + Arrays.toString(consistentHashImpl) + ", forceReturnValues="
             + forceReturnValues + ", keySizeEstimate=" + keySizeEstimate + ", marshallerClass=" + marshallerClass + ", marshaller=" + marshaller + ", protocolVersion="
             + protocolVersion + ", servers=" + servers + ", socketTimeout=" + socketTimeout + ", security=" + security + ", tcpNoDelay=" + tcpNoDelay + ", tcpKeepAlive=" + tcpKeepAlive
-            + ", transportFactory=" + transportFactory + ", valueSizeEstimate=" + valueSizeEstimate + ", maxRetries=" + maxRetries
+            + ", valueSizeEstimate=" + valueSizeEstimate + ", maxRetries=" + maxRetries
             + ", serialWhiteList=" + serialWhitelist
             + ", batchSize=" + batchSize
-            + "nearCache=" + nearCache + "]";
+            + ", nearCache=" + nearCache
+            + ", transaction=" + transaction
+            + ", statistics=" + statistics
+            + "]";
    }
 
    public Properties properties() {
-      Properties properties = new Properties();
+      TypedProperties properties = new TypedProperties();
       if (asyncExecutorFactory().factoryClass() != null) {
          properties.setProperty(ConfigurationProperties.ASYNC_EXECUTOR_FACTORY, asyncExecutorFactory().factoryClass().getName());
          TypedProperties aefProps = asyncExecutorFactory().properties();
-         for(String key : Arrays.asList(ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_POOL_SIZE, ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_QUEUE_SIZE)) {
+         for (String key : Arrays.asList(ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_POOL_SIZE, ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_QUEUE_SIZE)) {
             if (aefProps.containsKey(key)) {
                properties.setProperty(key, aefProps.getProperty(key));
             }
          }
       }
-      properties.setProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyClass().getName());
+      properties.setProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyFactory().get().getClass().getName());
       properties.setProperty(ConfigurationProperties.CLIENT_INTELLIGENCE, clientIntelligence().name());
       properties.setProperty(ConfigurationProperties.CONNECT_TIMEOUT, Integer.toString(connectionTimeout()));
       for (int i = 0; i < consistentHashImpl().length; i++) {
@@ -231,34 +285,41 @@ public class Configuration {
                   consistentHashImpl(version).getName());
          }
       }
-      properties.setProperty(ConfigurationProperties.FORCE_RETURN_VALUES, Boolean.toString(forceReturnValues()));
-      properties.setProperty(ConfigurationProperties.KEY_SIZE_ESTIMATE, Integer.toString(keySizeEstimate()));
+      properties.setProperty(ConfigurationProperties.FORCE_RETURN_VALUES, forceReturnValues());
+      properties.setProperty(ConfigurationProperties.KEY_SIZE_ESTIMATE, keySizeEstimate());
       properties.setProperty(ConfigurationProperties.MARSHALLER, marshallerClass().getName());
       properties.setProperty(ConfigurationProperties.PROTOCOL_VERSION, version().toString());
-      properties.setProperty(ConfigurationProperties.SO_TIMEOUT, Integer.toString(socketTimeout()));
-      properties.setProperty(ConfigurationProperties.TCP_NO_DELAY, Boolean.toString(tcpNoDelay()));
-      properties.setProperty(ConfigurationProperties.TCP_KEEP_ALIVE, Boolean.toString(tcpKeepAlive()));
-      properties.setProperty(ConfigurationProperties.TRANSPORT_FACTORY, transportFactory().getName());
-      properties.setProperty(ConfigurationProperties.VALUE_SIZE_ESTIMATE, Integer.toString(valueSizeEstimate()));
-      properties.setProperty(ConfigurationProperties.MAX_RETRIES, Integer.toString(maxRetries()));
+      properties.setProperty(ConfigurationProperties.SO_TIMEOUT, socketTimeout());
+      properties.setProperty(ConfigurationProperties.TCP_NO_DELAY, tcpNoDelay());
+      properties.setProperty(ConfigurationProperties.TCP_KEEP_ALIVE, tcpKeepAlive());
+      properties.setProperty(ConfigurationProperties.VALUE_SIZE_ESTIMATE, valueSizeEstimate());
+      properties.setProperty(ConfigurationProperties.MAX_RETRIES, maxRetries());
+      properties.setProperty(ConfigurationProperties.STATISTICS, statistics().enabled());
 
-      properties.setProperty("exhaustedAction", Integer.toString(connectionPool().exhaustedAction().ordinal()));
-      properties.setProperty("maxActive", Integer.toString(connectionPool().maxActive()));
-      properties.setProperty("maxTotal", Integer.toString(connectionPool().maxTotal()));
-      properties.setProperty("maxWait", Long.toString(connectionPool().maxWait()));
-      properties.setProperty("maxIdle", Integer.toString(connectionPool().maxIdle()));
-      properties.setProperty("minIdle", Integer.toString(connectionPool().minIdle()));
-      properties.setProperty("numTestsPerEvictionRun", Integer.toString(connectionPool().numTestsPerEvictionRun()));
-      properties.setProperty("minEvictableIdleTimeMillis", Long.toString(connectionPool().minEvictableIdleTime()));
-      properties.setProperty("timeBetweenEvictionRunsMillis", Long.toString(connectionPool().timeBetweenEvictionRuns()));
+      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_EXHAUSTED_ACTION, connectionPool().exhaustedAction().name());
+      properties.setProperty("exhaustedAction", connectionPool().exhaustedAction().ordinal());
+      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MAX_ACTIVE, connectionPool().maxActive());
+      properties.setProperty("maxActive", connectionPool().maxActive());
+      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MAX_WAIT, connectionPool().maxWait());
+      properties.setProperty("maxWait", connectionPool().maxWait());
+      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MIN_IDLE, connectionPool().minIdle());
+      properties.setProperty("minIdle", connectionPool().minIdle());
+      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, connectionPool().minEvictableIdleTime());
+      properties.setProperty("minEvictableIdleTimeMillis", connectionPool().minEvictableIdleTime());
+      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MAX_PENDING_REQUESTS, connectionPool().maxPendingRequests());
 
-      properties.setProperty("lifo", Boolean.toString(connectionPool().lifo()));
-      properties.setProperty("testOnBorrow", Boolean.toString(connectionPool().testOnBorrow()));
-      properties.setProperty("testOnReturn", Boolean.toString(connectionPool().testOnReturn()));
-      properties.setProperty("testWhileIdle", Boolean.toString(connectionPool().testWhileIdle()));
+      // Deprecated properties
+      properties.setProperty("maxIdle", connectionPool().maxIdle());
+      properties.setProperty("maxTotal", connectionPool().maxTotal());
+      properties.setProperty("numTestsPerEvictionRun", connectionPool().numTestsPerEvictionRun());
+      properties.setProperty("timeBetweenEvictionRunsMillis", connectionPool().timeBetweenEvictionRuns());
+      properties.setProperty("lifo", connectionPool().lifo());
+      properties.setProperty("testOnBorrow", connectionPool().testOnBorrow());
+      properties.setProperty("testOnReturn", connectionPool().testOnReturn());
+      properties.setProperty("testWhileIdle", connectionPool().testWhileIdle());
 
       StringBuilder servers = new StringBuilder();
-      for(ServerConfiguration server : servers()) {
+      for (ServerConfiguration server : servers()) {
          if (servers.length() > 0) {
             servers.append(";");
          }
@@ -286,7 +347,7 @@ public class Configuration {
       if (security.ssl().sniHostName() != null)
          properties.setProperty(ConfigurationProperties.SNI_HOST_NAME, security.ssl().sniHostName());
 
-      if(security.ssl().protocol() != null)
+      if (security.ssl().protocol() != null)
          properties.setProperty(ConfigurationProperties.SSL_PROTOCOL, security.ssl().protocol());
 
       if (security.ssl().sslContext() != null)
@@ -312,6 +373,13 @@ public class Configuration {
       properties.setProperty(ConfigurationProperties.JAVA_SERIAL_WHITELIST, String.join(",", serialWhitelist));
 
       properties.setProperty(ConfigurationProperties.BATCH_SIZE, Integer.toString(batchSize));
+
+      transaction.toProperties(properties);
+
+      properties.setProperty(ConfigurationProperties.NEAR_CACHE_MODE, nearCache.mode().name());
+      properties.setProperty(ConfigurationProperties.NEAR_CACHE_MAX_ENTRIES, Integer.toString(nearCache.maxEntries()));
+      if (nearCache.cacheNamePattern() != null)
+         properties.setProperty(ConfigurationProperties.NEAR_CACHE_NAME_PATTERN, nearCache.cacheNamePattern().pattern());
 
       return properties;
    }

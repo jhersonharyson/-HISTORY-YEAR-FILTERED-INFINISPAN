@@ -1,16 +1,22 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import static org.infinispan.client.hotrod.marshall.MarshallerUtil.bytes2obj;
+
 import java.net.SocketAddress;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 
 /**
  * ExecuteOperation.
@@ -22,33 +28,44 @@ public class ExecuteOperation<T> extends RetryOnFailureOperation<T> {
 
    private final String taskName;
    private final Map<String, byte[]> marshalledParams;
+   private final Object key;
 
-   protected ExecuteOperation(Codec codec, TransportFactory transportFactory, byte[] cacheName,
+   protected ExecuteOperation(Codec codec, ChannelFactory channelFactory, byte[] cacheName,
                               AtomicInteger topologyId, int flags, Configuration cfg,
-                              String taskName, Map<String, byte[]> marshalledParams) {
-      super(codec, transportFactory, cacheName == null ? DEFAULT_CACHE_NAME_BYTES : cacheName, topologyId, flags, cfg);
+                              String taskName, Map<String, byte[]> marshalledParams, Object key, DataFormat dataFormat) {
+      super(EXEC_REQUEST, EXEC_RESPONSE, codec, channelFactory, cacheName == null ? DEFAULT_CACHE_NAME_BYTES : cacheName, topologyId, flags, cfg, dataFormat);
       this.taskName = taskName;
       this.marshalledParams = marshalledParams;
+      this.key = key;
    }
 
    @Override
-   protected Transport getTransport(int retryCount,
-         Set<SocketAddress> failedServers) {
-      return transportFactory.getTransport(failedServers, cacheName);
-   }
-
-   @Override
-   protected T executeOperation(Transport transport) {
-      HeaderParams params = writeHeader(transport, EXEC_REQUEST);
-      transport.writeString(taskName);
-      transport.writeVInt(marshalledParams.size());
-      for(Entry<String, byte[]> entry : marshalledParams.entrySet()) {
-         transport.writeString(entry.getKey());
-         transport.writeArray(entry.getValue());
+   protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
+      if (key != null) {
+         channelFactory.fetchChannelAndInvoke(key, failedServers, cacheName, this);
+      } else {
+         channelFactory.fetchChannelAndInvoke(failedServers, cacheName, this);
       }
-      transport.flush();
-      short status = readHeaderAndValidate(transport, params);
-      return codec.readUnmarshallByteArray(transport, status, cfg.serialWhitelist());
    }
 
+   @Override
+   protected void executeOperation(Channel channel) {
+      scheduleRead(channel);
+
+      ByteBuf buf = channel.alloc().buffer(); // estimation too complex
+
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeString(buf, taskName);
+      ByteBufUtil.writeVInt(buf, marshalledParams.size());
+      for (Entry<String, byte[]> entry : marshalledParams.entrySet()) {
+         ByteBufUtil.writeString(buf, entry.getKey());
+         ByteBufUtil.writeArray(buf, entry.getValue());
+      }
+      channel.writeAndFlush(buf);
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      complete(bytes2obj(channelFactory.getMarshaller(), ByteBufUtil.readArray(buf), dataFormat.isObjectStorage(), cfg.getClassWhiteList()));
+   }
 }

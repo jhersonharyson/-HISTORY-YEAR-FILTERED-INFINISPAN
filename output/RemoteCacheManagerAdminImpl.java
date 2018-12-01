@@ -1,5 +1,7 @@
 package org.infinispan.client.hotrod.impl;
 
+import static org.infinispan.client.hotrod.impl.Util.await;
+
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -13,6 +15,7 @@ import org.infinispan.client.hotrod.RemoteCacheManagerAdmin;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
+import org.infinispan.commons.configuration.BasicConfiguration;
 
 /**
  * @author Tristan Tarrant
@@ -21,6 +24,7 @@ import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
    public static final String CACHE_NAME = "name";
    public static final String CACHE_TEMPLATE = "template";
+   public static final String CACHE_CONFIGURATION = "configuration";
    public static final String FLAGS = "flags";
    private final RemoteCacheManager cacheManager;
    private final OperationsFactory operationsFactory;
@@ -40,7 +44,17 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (template != null) params.put(CACHE_TEMPLATE, string(template));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      operationsFactory.newExecuteOperation("@@cache@create", params).execute();
+      await(operationsFactory.newAdminOperation("@@cache@create", params).execute());
+      return cacheManager.getCache(name);
+   }
+
+   @Override
+   public <K, V> RemoteCache<K, V> createCache(String name, BasicConfiguration configuration) throws HotRodClientException {
+      Map<String, byte[]> params = new HashMap<>(2);
+      params.put(CACHE_NAME, string(name));
+      if (configuration != null) params.put(CACHE_CONFIGURATION, string(configuration.toXMLString(name)));
+      if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
+      await(operationsFactory.newAdminOperation("@@cache@create", params).execute());
       return cacheManager.getCache(name);
    }
 
@@ -50,7 +64,17 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (template != null) params.put(CACHE_TEMPLATE, string(template));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      operationsFactory.newExecuteOperation("@@cache@getorcreate", params).execute();
+      await(operationsFactory.newAdminOperation("@@cache@getorcreate", params).execute());
+      return cacheManager.getCache(name);
+   }
+
+   @Override
+   public <K, V> RemoteCache<K, V> getOrCreateCache(String name, BasicConfiguration configuration) throws HotRodClientException {
+      Map<String, byte[]> params = new HashMap<>(2);
+      params.put(CACHE_NAME, string(name));
+      if (configuration != null) params.put(CACHE_CONFIGURATION, string(configuration.toXMLString(name)));
+      if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
+      await(operationsFactory.newAdminOperation("@@cache@getorcreate", params).execute());
       return cacheManager.getCache(name);
    }
 
@@ -64,7 +88,10 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
    @Override
    public void removeCache(String name) {
       remover.accept(name);
-      operationsFactory.newExecuteOperation("@@cache@remove", Collections.singletonMap(CACHE_NAME, string(name))).execute();
+      Map<String, byte[]> params = new HashMap<>(2);
+      params.put(CACHE_NAME, string(name));
+      if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
+      await(operationsFactory.newAdminOperation("@@cache@remove", params).execute());
    }
 
    @Override
@@ -84,7 +111,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
 
    @Override
    public void reindexCache(String name) throws HotRodClientException {
-      operationsFactory.newExecuteOperation("@@cache@reindex", Collections.singletonMap(CACHE_NAME, string(name))).execute();
+      await(operationsFactory.newAdminOperation("@@cache@reindex", Collections.singletonMap(CACHE_NAME, string(name))).execute());
    }
 
    private static byte[] flags(EnumSet<AdminFlag> flags) {

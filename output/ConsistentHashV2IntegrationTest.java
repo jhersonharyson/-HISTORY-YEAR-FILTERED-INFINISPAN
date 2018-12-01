@@ -11,7 +11,7 @@ import java.util.concurrent.Executors;
 import org.infinispan.affinity.KeyAffinityService;
 import org.infinispan.affinity.KeyAffinityServiceFactory;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
-import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.retry.DistributionRetryTest;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.CacheMode;
@@ -23,8 +23,8 @@ import org.infinispan.remoting.transport.Address;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
-import org.testng.annotations.AfterTest;
 import org.testng.annotations.Test;
 
 /**
@@ -89,7 +89,7 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
    protected void clearContent() throws Throwable {
    }
 
-   @AfterTest
+   @AfterClass(alwaysRun = true)
    public void cleanUp() {
       ex.shutdownNow();
       kas.stop();
@@ -126,7 +126,7 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
          remoteCache.put(key, "v");
       }
 
-      // compatibility with 1.0/1.1 clients is not perfect, so we must allow for some misses
+      // support for 1.0/1.1 clients is not perfect, so we must allow for some misses
       assertTrue(hitCountInterceptor(cacheIndex).getHits() > NUM_KEYS * 0.99);
       hitCountInterceptor(cacheIndex).reset();
    }
@@ -134,16 +134,16 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
    @Test(groups = "unstable", description = "ISPN-6901")
    public void testCorrectBalancingOfKeysAfterNodeKill() {
       //final AtomicInteger clientTopologyId = TestingUtil.extractField(remoteCacheManager, "defaultCacheTopologyId");
-      TcpTransportFactory transportFactory = TestingUtil.extractField(remoteCacheManager, "transportFactory");
+      ChannelFactory channelFactory = TestingUtil.extractField(remoteCacheManager, "channelFactory");
 
-      final int topologyIdBeforeJoin = transportFactory.getTopologyId(new byte[]{});
+      final int topologyIdBeforeJoin = channelFactory.getTopologyId(new byte[]{});
       log.tracef("Starting test with client topology id %d", topologyIdBeforeJoin);
       EmbeddedCacheManager cm5 = addClusterEnabledCacheManager(buildConfiguration());
       HotRodServer hotRodServer5 = HotRodClientTestingUtil.startHotRodServer(cm5);
 
       // Rebalancing to include the joiner will increment the topology id by 2
       eventually(() -> {
-         int topologyId = transportFactory.getTopologyId(new byte[]{});
+         int topologyId = channelFactory.getTopologyId(new byte[]{});
          log.tracef("Client topology id is %d, waiting for it to become %d", topologyId,
                topologyIdBeforeJoin + 2);
          // The put operation will update the client topology (if necessary)
@@ -162,7 +162,7 @@ public class ConsistentHashV2IntegrationTest extends MultipleCacheManagersTest {
 
       // Rebalancing to exclude the leaver will again increment the topology id by 2
       eventually(() -> {
-         int topologyId = transportFactory.getTopologyId(new byte[]{});
+         int topologyId = channelFactory.getTopologyId(new byte[]{});
          log.tracef("Client topology id is %d, waiting for it to become %d", topologyId,
                topologyIdBeforeJoin + 4);
          // The put operation will update the client topology (if necessary)

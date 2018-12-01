@@ -2,13 +2,17 @@ package org.infinispan.client.hotrod.impl.operations;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.VersionedOperationResponse;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -23,25 +27,29 @@ public class RemoveIfUnmodifiedOperation<V> extends AbstractKeyOperation<Version
 
    private final long version;
 
-   public RemoveIfUnmodifiedOperation(Codec codec, TransportFactory transportFactory,
+   public RemoveIfUnmodifiedOperation(Codec codec, ChannelFactory channelFactory,
                                       Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId,
                                       int flags, Configuration cfg,
-                                      long version) {
-      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, cfg);
+                                      long version, DataFormat dataFormat, ClientStatistics clientStatistics) {
+      super(REMOVE_IF_UNMODIFIED_REQUEST, REMOVE_IF_UNMODIFIED_RESPONSE, codec, channelFactory, key, keyBytes, cacheName,
+            topologyId, flags, cfg, dataFormat.withoutValueType(), clientStatistics);
       this.version = version;
    }
 
    @Override
-   protected VersionedOperationResponse<V> executeOperation(Transport transport) {
-      // 1) write header
-      HeaderParams params = writeHeader(transport, REMOVE_IF_UNMODIFIED_REQUEST);
+   protected void executeOperation(Channel channel) {
+      scheduleRead(channel);
 
-      //2) write message body
-      transport.writeArray(keyBytes);
-      transport.writeLong(version);
-      transport.flush();
+      ByteBuf buf = channel.alloc().buffer(codec.estimateHeaderSize(header) + ByteBufUtil.estimateArraySize(keyBytes) + 8);
 
-      //process response and return
-      return returnVersionedOperationResponse(transport, params);
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, keyBytes);
+      buf.writeLong(version);
+      channel.writeAndFlush(buf);
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      complete(returnVersionedOperationResponse(buf, status));
    }
 }

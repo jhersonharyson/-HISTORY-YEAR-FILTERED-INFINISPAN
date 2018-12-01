@@ -2,12 +2,16 @@ package org.infinispan.client.hotrod.impl.operations;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -20,18 +24,27 @@ import net.jcip.annotations.Immutable;
 @Immutable
 public class RemoveOperation<V> extends AbstractKeyOperation<V> {
 
-   public RemoveOperation(Codec codec, TransportFactory transportFactory,
-         Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg) {
-      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, cfg);
+   public RemoveOperation(Codec codec, ChannelFactory channelFactory,
+                          Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags,
+                          Configuration cfg, DataFormat dataFormat, ClientStatistics clientStatistics) {
+      super(REMOVE_REQUEST, REMOVE_RESPONSE, codec, channelFactory, key, keyBytes, cacheName, topologyId, flags, cfg,
+            dataFormat, clientStatistics);
    }
 
    @Override
-   public V executeOperation(Transport transport) {
-      short status = sendKeyOperation(keyBytes, transport, REMOVE_REQUEST, REMOVE_RESPONSE);
-      V result = returnPossiblePrevValue(transport, status);
-      if (HotRodConstants.isNotExist(status))
-         return null;
+   public void executeOperation(Channel channel) {
+      scheduleRead(channel);
+      sendArrayOperation(channel, keyBytes);
+   }
 
-      return result; // NO_ERROR_STATUS
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      V result = returnPossiblePrevValue(buf, status);
+      if (HotRodConstants.isNotExist(status)) {
+         complete(null);
+      } else {
+         statsDataRemove();
+         complete(result); // NO_ERROR_STATUS
+      }
    }
 }

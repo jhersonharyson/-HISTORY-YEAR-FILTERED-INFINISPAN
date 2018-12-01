@@ -1,15 +1,14 @@
 package org.infinispan.client.hotrod.impl.operations;
 
-import java.net.SocketAddress;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -21,22 +20,18 @@ import net.jcip.annotations.Immutable;
 @Immutable
 public class ClearOperation extends RetryOnFailureOperation<Void> {
 
-   public ClearOperation(Codec codec, TransportFactory transportFactory,
+   public ClearOperation(Codec codec, ChannelFactory channelFactory,
                          byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg) {
-      super(codec, transportFactory, cacheName, topologyId, flags, cfg);
+      super(CLEAR_REQUEST, CLEAR_RESPONSE, codec, channelFactory, cacheName, topologyId, flags, cfg, null);
    }
 
    @Override
-   protected Transport getTransport(int retryCount, Set<SocketAddress> failedServers) {
-      return transportFactory.getTransport(failedServers, cacheName);
+   protected void executeOperation(Channel channel) {
+      sendHeaderAndRead(channel);
    }
 
    @Override
-   protected Void executeOperation(Transport transport) {
-      HeaderParams params = writeHeader(transport, CLEAR_REQUEST);
-      transport.flush();
-
-      readHeaderAndValidate(transport, params);
-      return null;
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      complete(null);
    }
 }

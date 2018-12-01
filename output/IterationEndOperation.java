@@ -1,42 +1,49 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
+import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.client.hotrod.logging.LogFactory;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 
 /**
  * @author gustavonalle
  * @since 8.0
  */
-public class IterationEndOperation extends HotRodOperation {
+public class IterationEndOperation extends HotRodOperation<IterationEndResponse> {
+   private static final Log log = LogFactory.getLog(IterationEndOperation.class);
 
-   private final String iterationId;
-   private final TransportFactory transportFactory;
-   private final Transport transport;
+   private final byte[] iterationId;
+   private final Channel channel;
 
-   protected IterationEndOperation(Codec codec, int flags, Configuration cfg,  byte[] cacheName,
-                                   AtomicInteger topologyId, String iterationId, TransportFactory transportFactory,
-                                   Transport transport) {
-      super(codec, flags, cfg, cacheName, topologyId);
+   protected IterationEndOperation(Codec codec, int flags, Configuration cfg, byte[] cacheName,
+                                   AtomicInteger topologyId, byte[] iterationId, ChannelFactory channelFactory,
+                                   Channel channel) {
+      super(ITERATION_END_REQUEST, ITERATION_END_RESPONSE, codec, flags, cfg, cacheName, topologyId, channelFactory);
       this.iterationId = iterationId;
-      this.transportFactory = transportFactory;
-      this.transport = transport;
+      this.channel = channel;
    }
 
    @Override
-   public IterationEndResponse execute() {
-      try {
-         HeaderParams params = writeHeader(transport, ITERATION_END_REQUEST);
-         transport.writeString(iterationId);
-         transport.flush();
-         short status = readHeaderAndValidate(transport, params);
-         return new IterationEndResponse(status);
-      } finally {
-         transportFactory.releaseTransport(transport);
+   public CompletableFuture<IterationEndResponse> execute() {
+      if (!channel.isActive()) {
+         throw log.channelInactive(channel.remoteAddress(), channel.remoteAddress());
       }
+      scheduleRead(channel);
+      sendArrayOperation(channel, iterationId);
+      releaseChannel(channel);
+      return this;
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      complete(new IterationEndResponse(status));
    }
 }

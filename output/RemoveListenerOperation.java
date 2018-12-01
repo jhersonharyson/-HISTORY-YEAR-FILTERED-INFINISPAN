@@ -6,10 +6,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 import org.infinispan.counter.api.Handle;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 
 /**
  * A remove listener operation for {@link Handle#remove()}.
@@ -22,28 +25,36 @@ public class RemoveListenerOperation extends BaseCounterOperation<Boolean> {
    private final byte[] listenerId;
    private final SocketAddress server;
 
-   public RemoveListenerOperation(Codec codec, TransportFactory transportFactory, AtomicInteger topologyId,
-         Configuration cfg, String counterName, byte[] listenerId, SocketAddress server) {
-      super(codec, transportFactory, topologyId, cfg, counterName);
+   public RemoveListenerOperation(Codec codec, ChannelFactory transportFactory, AtomicInteger topologyId,
+                                  Configuration cfg, String counterName, byte[] listenerId, SocketAddress server) {
+      super(COUNTER_REMOVE_LISTENER_REQUEST, COUNTER_REMOVE_LISTENER_RESPONSE, codec, transportFactory, topologyId, cfg, counterName);
       this.listenerId = listenerId;
       this.server = server;
    }
 
 
    @Override
-   protected Boolean executeOperation(Transport transport) {
-      HeaderParams header = writeHeaderAndCounterName(transport, COUNTER_ADD_LISTENER_REQUEST);
-      transport.writeArray(listenerId);
-      transport.flush();
-
-      short status = readHeaderAndValidateCounter(transport, header);
-      return status == NO_ERROR_STATUS;
+   protected void executeOperation(Channel channel) {
+      ByteBuf buf = getHeaderAndCounterNameBufferAndRead(channel, ByteBufUtil.estimateArraySize(listenerId));
+      ByteBufUtil.writeArray(buf, listenerId);
+      channel.writeAndFlush(buf);
    }
 
    @Override
-   protected Transport getTransport(int retryCount, Set<SocketAddress> failedServers) {
-      return server == null ?
-             super.getTransport(retryCount, failedServers) :
-             transportFactory.getAddressTransport(server);
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      checkStatus(status);
+      if (status == NO_ERROR_STATUS) {
+         decoder.removeListener(listenerId);
+      }
+      complete(status == NO_ERROR_STATUS);
+   }
+
+   @Override
+   protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
+      if (server == null) {
+         super.fetchChannelAndInvoke(retryCount, failedServers);
+      } else {
+         channelFactory.fetchChannelAndInvoke(server, this);
+      }
    }
 }

@@ -1,17 +1,19 @@
 package org.infinispan.client.hotrod.impl.operations;
 
-import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.infinispan.client.hotrod.VersionedMetadata;
 import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.VersionedMetadataImpl;
+import org.infinispan.client.hotrod.impl.protocol.ChannelInputStream;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.HeaderParams;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -21,59 +23,66 @@ import net.jcip.annotations.Immutable;
  * @since 9.0
  */
 @Immutable
-public class GetStreamOperation<T extends InputStream & VersionedMetadata> extends AbstractKeyOperation<T> {
+public class GetStreamOperation extends AbstractKeyOperation<ChannelInputStream> {
    private final int offset;
-   private boolean retryable;
+   private Channel channel;
 
-   public GetStreamOperation(Codec codec, TransportFactory transportFactory,
-                             Object key, byte[] keyBytes, int offset, byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg) {
-      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, cfg);
+   public GetStreamOperation(Codec codec, ChannelFactory channelFactory,
+                             Object key, byte[] keyBytes, int offset, byte[] cacheName, AtomicInteger topologyId, int flags,
+                             Configuration cfg, ClientStatistics clientStatistics) {
+      super(GET_STREAM_REQUEST, GET_STREAM_RESPONSE, codec, channelFactory, key, keyBytes, cacheName, topologyId, flags,
+            cfg, null, clientStatistics);
       this.offset = offset;
-      retryable = true;
    }
 
    @Override
-   public T executeOperation(Transport transport) {
-      HeaderParams params = writeHeader(transport, GET_STREAM_REQUEST);
-      transport.writeArray(keyBytes);
-      transport.writeVInt(offset);
-      transport.flush();
-      short status = readHeaderAndValidate(transport, params);
-      T result = null;
-      if (HotRodConstants.isNotExist(status)) {
-         result = null;
+   public void executeOperation(Channel channel) {
+      this.channel = channel;
+      scheduleRead(channel);
+
+      ByteBuf buf = channel.alloc().buffer(codec.estimateHeaderSize(header) + ByteBufUtil.estimateArraySize(keyBytes)
+            + ByteBufUtil.estimateVIntSize(offset));
+
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, keyBytes);
+      ByteBufUtil.writeVInt(buf, offset);
+      channel.writeAndFlush(buf);
+   }
+
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      if (HotRodConstants.isNotExist(status) || !HotRodConstants.isSuccess(status)) {
+         statsDataRead(false);
+         complete(null);
       } else {
-         if (HotRodConstants.isSuccess(status)) {
-            retryable = false;
-            short flags = transport.readByte();
-            long creation = -1;
-            int lifespan = -1;
-            long lastUsed = -1;
-            int maxIdle = -1;
-            if ((flags & INFINITE_LIFESPAN) != INFINITE_LIFESPAN) {
-               creation = transport.readLong();
-               lifespan = transport.readVInt();
-            }
-            if ((flags & INFINITE_MAXIDLE) != INFINITE_MAXIDLE) {
-               lastUsed = transport.readLong();
-               maxIdle = transport.readVInt();
-            }
-            long version = transport.readLong();
-            transport.setBusy(true);
-            result = codec.readAsStream(transport,
-                  new VersionedMetadataImpl(creation, lifespan, lastUsed, maxIdle, version),
-                  () -> {
-                     transport.setBusy(false);
-                     transport.getTransportFactory().releaseTransport(transport);
-                  }
-            );
+         short flags = buf.readUnsignedByte();
+         long creation = -1;
+         int lifespan = -1;
+         long lastUsed = -1;
+         int maxIdle = -1;
+         if ((flags & INFINITE_LIFESPAN) != INFINITE_LIFESPAN) {
+            creation = buf.readLong();
+            lifespan = ByteBufUtil.readVInt(buf);
          }
-      }
-      return result;
-   }
+         if ((flags & INFINITE_MAXIDLE) != INFINITE_MAXIDLE) {
+            lastUsed = buf.readLong();
+            maxIdle = ByteBufUtil.readVInt(buf);
+         }
+         long version = buf.readLong();
+         int totalLength = ByteBufUtil.readVInt(buf);
+         VersionedMetadataImpl versionedMetadata = new VersionedMetadataImpl(creation, lifespan, lastUsed, maxIdle, version);
 
-   @Override
-   protected boolean shouldRetry(int retryCount) {
-      return retryable && super.shouldRetry(retryCount);
+         ChannelInputStream stream = new ChannelInputStream(versionedMetadata, () -> {
+            // ChannelInputStreams removes itself when it finishes reading all data
+            if (channel.pipeline().get(ChannelInputStream.class) != null) {
+               channel.pipeline().remove(ChannelInputStream.class);
+            }
+         }, totalLength);
+         if (stream.moveReadable(buf)) {
+            channel.pipeline().addBefore(HeaderDecoder.NAME, ChannelInputStream.NAME, stream);
+         }
+         statsDataRead(true);
+         complete(stream);
+      }
    }
 }

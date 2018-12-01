@@ -3,14 +3,19 @@ package org.infinispan.client.hotrod.impl.multimap.operations;
 import static org.infinispan.client.hotrod.impl.multimap.protocol.MultimapHotRodConstants.CONTAINS_ENTRY_REQUEST;
 import static org.infinispan.client.hotrod.impl.multimap.protocol.MultimapHotRodConstants.CONTAINS_ENTRY_RESPONSE;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
+import org.infinispan.client.hotrod.impl.operations.AbstractKeyValueOperation;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
-import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
 
 /**
@@ -21,19 +26,27 @@ import net.jcip.annotations.Immutable;
  * @since 9.2
  */
 @Immutable
-public class ContainsEntryMultimapOperation extends AbstractMultimapKeyValueOperation<Boolean> {
+public class ContainsEntryMultimapOperation extends AbstractKeyValueOperation<Boolean> {
 
-   public ContainsEntryMultimapOperation(Codec codec, TransportFactory transportFactory, Object key, byte[] keyBytes, byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg, byte[] value) {
-      super(codec, transportFactory, key, keyBytes, cacheName, topologyId, flags, cfg, value);
+   public ContainsEntryMultimapOperation(Codec codec, ChannelFactory channelFactory, Object key, byte[] keyBytes,
+                                         byte[] cacheName, AtomicInteger topologyId, int flags, Configuration cfg,
+                                         byte[] value, ClientStatistics clientStatistics) {
+      super(CONTAINS_ENTRY_REQUEST, CONTAINS_ENTRY_RESPONSE, codec, channelFactory, key, keyBytes, cacheName, topologyId,
+            flags, cfg, value, -1, TimeUnit.MILLISECONDS, -1, TimeUnit.MILLISECONDS, null, clientStatistics);
    }
 
    @Override
-   protected Boolean executeOperation(Transport transport) {
-      short status = sendKeyValueOperation(transport, CONTAINS_ENTRY_REQUEST, CONTAINS_ENTRY_RESPONSE);
-      if (HotRodConstants.isNotExist(status)) {
-         return Boolean.FALSE;
-      }
+   protected void executeOperation(Channel channel) {
+      scheduleRead(channel);
+      sendKeyValueOperation(channel);
+   }
 
-      return transport.readByte() == 1 ? Boolean.TRUE : Boolean.FALSE;
+   @Override
+   public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
+      if (HotRodConstants.isNotExist(status)) {
+         complete(Boolean.FALSE);
+      } else {
+         complete(buf.readByte() == 1 ? Boolean.TRUE : Boolean.FALSE);
+      }
    }
 }
