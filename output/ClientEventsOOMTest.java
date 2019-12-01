@@ -16,10 +16,10 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryCreated;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
+import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.filter.NamedFactory;
-import org.infinispan.marshall.core.ExternalPojo;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.filter.CacheEventConverter;
 import org.infinispan.notifications.cachelistener.filter.CacheEventConverterFactory;
@@ -150,9 +150,11 @@ public class ClientEventsOOMTest extends MultiHotRodServersTest {
       @ClientCacheEntryCreated
       @SuppressWarnings("unused")
       public void handleClientCacheEntryCreatedEvent(ClientCacheEntryCustomEvent event) {
-         int length = ((byte[]) event.getEventData()).length;
+         byte[] eventData = (byte[]) event.getEventData();
+         int length = eventData.length;
          eventCount++;
-         log.debugf("ClientEntryListener.handleClientCacheEntryCreatedEvent eventCount=%d length=%d\n", eventCount, length);
+         log.debugf("ClientEntryListener.handleClientCacheEntryCreatedEvent eventCount=%d length=%d data=%s\n",
+                    eventCount, length, Util.toStr(eventData));
          logDirectMemory(log);
          if (eventCount == NUM_ENTRIES) latch.countDown();
          try {
@@ -170,7 +172,7 @@ public class ClientEventsOOMTest extends MultiHotRodServersTest {
          return new CustomConverter<>();
       }
 
-      static class CustomConverter<K, V, C> implements CacheEventConverter<K, V, C>, Serializable, ExternalPojo {
+      static class CustomConverter<K, V, C> implements CacheEventConverter<K, V, C>, Serializable {
          @Override
          public C convert(Object key, Object previousValue, Metadata previousMetadata, Object value, Metadata metadata, EventType eventType) {
             // all baby godzillas get converted to full grown godzillas

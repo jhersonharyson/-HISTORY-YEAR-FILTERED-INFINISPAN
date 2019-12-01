@@ -7,8 +7,8 @@ import org.infinispan.client.hotrod.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.protostream.SerializationContextInitializer;
 
 /**
  * ConfigurationChildBuilder.
@@ -87,7 +87,7 @@ public interface ConfigurationChildBuilder {
    ConnectionPoolConfigurationBuilder connectionPool();
 
    /**
-    * This property defines the maximum socket connect timeout before giving up connecting to the
+    * This property defines the maximum socket connect timeout in milliseconds before giving up connecting to the
     * server.
     */
    ConfigurationBuilder connectionTimeout(int connectionTimeout);
@@ -133,6 +133,25 @@ public interface ConfigurationChildBuilder {
    ConfigurationBuilder marshaller(Marshaller marshaller);
 
    /**
+    * Supply a {@link SerializationContextInitializer} implementation to register classes with the {@link
+    * org.infinispan.commons.marshall.ProtoStreamMarshaller}'s {@link org.infinispan.protostream.SerializationContext}.
+    */
+   ConfigurationBuilder addContextInitializer(String contextInitializer);
+
+   /**
+    * Supply a {@link SerializationContextInitializer} implementation to register classes with the {@link
+    * org.infinispan.commons.marshall.ProtoStreamMarshaller}'s {@link org.infinispan.protostream.SerializationContext}.
+    */
+   ConfigurationBuilder addContextInitializer(SerializationContextInitializer contextInitializer);
+
+   /**
+    * Convenience method to supply multiple {@link SerializationContextInitializer} implementations.
+    *
+    * @see #addContextInitializer(SerializationContextInitializer).
+    */
+   ConfigurationBuilder addContextInitializers(SerializationContextInitializer... contextInitializers);
+
+   /**
     * This property defines the protocol version that this client should use. Defaults to the latest protocol version
     * supported by this client.
     *
@@ -167,22 +186,6 @@ public interface ConfigurationChildBuilder {
     * Affects TCP KEEPALIVE on the TCP stack. Defaults to disable
     */
    ConfigurationBuilder tcpKeepAlive(boolean keepAlive);
-
-   /**
-    * Controls which transport to use.
-    *
-    * @deprecated Ignored.
-    */
-   @Deprecated
-   ConfigurationBuilder transportFactory(String transportFactory);
-
-   /**
-    * Controls which transport to use.
-    *
-    * @deprecated Ignored.
-    */
-   @Deprecated
-   ConfigurationBuilder transportFactory(Class<? extends TransportFactory> transportFactory);
 
    /**
     * This hint allows sizing of byte buffers when serializing and deserializing values, to minimize

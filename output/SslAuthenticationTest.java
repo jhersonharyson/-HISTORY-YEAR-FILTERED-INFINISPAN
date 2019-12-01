@@ -15,7 +15,7 @@ import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.security.AuthorizationPermission;
 import org.infinispan.security.Security;
-import org.infinispan.security.impl.CommonNameRoleMapper;
+import org.infinispan.security.mappers.CommonNameRoleMapper;
 import org.infinispan.server.core.security.simple.SimpleServerAuthenticationProvider;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
@@ -90,9 +90,11 @@ public class SslAuthenticationTest extends SingleCacheManagerTest {
                .requireClientAuth(true)
                .keyStoreFileName(cl.getResource("keystore_server.p12").getPath())
                .keyStorePassword("secret".toCharArray())
+               .keyStoreType("pkcs12")
                .keyAlias("hotrod")
                .trustStoreFileName(cl.getResource("ca.p12").getPath())
-               .trustStorePassword("secret".toCharArray());
+               .trustStorePassword("secret".toCharArray())
+               .trustStoreType("pkcs12");
       serverBuilder
             .authentication()
                .enable()
@@ -106,7 +108,7 @@ public class SslAuthenticationTest extends SingleCacheManagerTest {
 
       log.info("Started server on port: " + hotrodServer.getPort());
 
-      ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder
             .addServer()
                .host("127.0.0.1")
@@ -114,7 +116,6 @@ public class SslAuthenticationTest extends SingleCacheManagerTest {
             .socketTimeout(3000)
             .connectionPool()
                .maxActive(1)
-               .timeBetweenEvictionRuns(2000)
             .security()
                .authentication()
                   .enable()
@@ -123,9 +124,11 @@ public class SslAuthenticationTest extends SingleCacheManagerTest {
                   .enable()
                   .keyStoreFileName(cl.getResource("keystore_client.p12").getPath())
                   .keyStorePassword("secret".toCharArray())
+                  .keyStoreType("pkcs12")
                   .keyAlias("client1")
                   .trustStoreFileName(cl.getResource("ca.p12").getPath())
-                  .trustStorePassword("secret".toCharArray());
+                  .trustStorePassword("secret".toCharArray())
+                  .trustStoreType("pkcs12");
 
       remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
    }
@@ -146,14 +149,14 @@ public class SslAuthenticationTest extends SingleCacheManagerTest {
    }
 
 
-   public void testSSLAuthentication() throws Exception {
+   public void testSSLAuthentication() {
       RemoteCache<String, String> cache = remoteCacheManager.getCache();
       cache.put("k","v");
       assertEquals("v", cache.get("k"));
    }
 
    @Test(expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = ".*ISPN000287.*")
-   public void testSSLUnauthorized() throws Exception {
+   public void testSSLUnauthorized() {
       RemoteCache<String, String> cache = remoteCacheManager.getCache(UNAUTHORIZED);
       cache.put("k1","v1");
       assertEquals("v1", cache.get("k1"));

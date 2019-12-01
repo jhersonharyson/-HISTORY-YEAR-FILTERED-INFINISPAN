@@ -1,6 +1,6 @@
 package org.infinispan.client.hotrod;
 
-import org.infinispan.client.hotrod.event.ContinuousQueryImpl;
+import org.infinispan.client.hotrod.event.impl.ContinuousQueryImpl;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.query.RemoteQueryFactory;
 import org.infinispan.query.api.continuous.ContinuousQuery;
@@ -24,6 +24,6 @@ public final class Search {
    }
 
    public static <K, V> ContinuousQuery<K, V> getContinuousQuery(RemoteCache<K, V> cache) {
-      return new ContinuousQueryImpl<K, V>(cache);
+      return new ContinuousQueryImpl<>(cache);
    }
 }

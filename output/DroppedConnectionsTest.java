@@ -37,12 +37,10 @@ public class DroppedConnectionsTest extends SingleCacheManagerTest {
             hotRodCacheConfiguration(getDefaultStandaloneCacheConfig(false)));
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
-      ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder
             .connectionPool()
-               .testWhileIdle(false)
                .minIdle(1)
-               .maxIdle(2)
                .maxActive(2)
             .addServer().host(hotRodServer.getHost()).port(hotRodServer.getPort());
 
@@ -73,7 +71,7 @@ public class DroppedConnectionsTest extends SingleCacheManagerTest {
 
       channel.close();
 
-      assertEquals("v", rc.get("k"));
+         assertEquals("v", rc.get("k"));
       assertEquals(0, channelFactory.getNumActive(address));
       assertEquals(1, channelFactory.getNumIdle(address));
 

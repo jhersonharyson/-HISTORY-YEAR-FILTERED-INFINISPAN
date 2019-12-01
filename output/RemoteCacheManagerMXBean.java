@@ -1,16 +1,33 @@
 package org.infinispan.client.hotrod.jmx;
 
+/**
+ * RemoteCacheManager client-side statistics and operations
+ */
 public interface RemoteCacheManagerMXBean {
    /**
     * Returns a list of servers to which the client is currently connected in the format of ip_address:port_number.
     */
    String[] getServers();
 
+   /**
+    * Returns the number of active connections
+    */
    int getActiveConnectionCount();
 
+   /**
+    * Returns the total number of connections
+    */
    int getConnectionCount();
 
+   /**
+    * Returns the number of idle connections
+    */
    int getIdleConnectionCount();
+
+   /**
+    * Returns the total number of retries that have been executed
+    */
+   long getRetries();
 
    /**
     * Switch remote cache manager to a different cluster, previously

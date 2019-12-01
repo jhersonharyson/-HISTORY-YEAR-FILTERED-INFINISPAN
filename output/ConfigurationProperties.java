@@ -13,9 +13,7 @@ import org.infinispan.client.hotrod.configuration.StatisticsConfiguration;
 import org.infinispan.client.hotrod.configuration.TransactionConfigurationBuilder;
 import org.infinispan.client.hotrod.configuration.TransactionMode;
 import org.infinispan.client.hotrod.impl.async.DefaultAsyncExecutorFactory;
-import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
-import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
 import org.infinispan.commons.util.TypedProperties;
 
 /**
@@ -26,10 +24,9 @@ import org.infinispan.commons.util.TypedProperties;
  */
 public class ConfigurationProperties {
    private static final String ICH = "infinispan.client.hotrod.";
-   @Deprecated
-   public static final String TRANSPORT_FACTORY = ICH + "transport_factory";
    public static final String SERVER_LIST = ICH + "server_list";
    public static final String MARSHALLER = ICH + "marshaller";
+   public static final String CONTEXT_INITIALIZERS = ICH + "context-initializers";
    public static final String ASYNC_EXECUTOR_FACTORY = ICH + "async_executor_factory";
    public static final String CLIENT_INTELLIGENCE = ICH + "client_intelligence";
    public static final String DEFAULT_EXECUTOR_FACTORY_POOL_SIZE = ICH + "default_executor_factory.pool_size";
@@ -37,15 +34,11 @@ public class ConfigurationProperties {
    public static final String DEFAULT_EXECUTOR_FACTORY_THREADNAME_SUFFIX = ICH + "default_executor_factory.threadname_suffix";
    public static final String TCP_NO_DELAY = ICH + "tcp_no_delay";
    public static final String TCP_KEEP_ALIVE = ICH + "tcp_keep_alive";
-   @Deprecated
-   public static final String PING_ON_STARTUP = ICH + "ping_on_startup";
    public static final String REQUEST_BALANCING_STRATEGY = ICH + "request_balancing_strategy";
    public static final String KEY_SIZE_ESTIMATE = ICH + "key_size_estimate";
    public static final String VALUE_SIZE_ESTIMATE = ICH + "value_size_estimate";
    public static final String FORCE_RETURN_VALUES = ICH + "force_return_values";
    public static final String HASH_FUNCTION_PREFIX = ICH + "hash_function_impl";
-   @Deprecated
-   public static final String DEFAULT_EXECUTOR_FACTORY_QUEUE_SIZE = ICH + "default_executor_factory.queue_size";
    // Connection properties
    public static final String SO_TIMEOUT = ICH + "socket_timeout";
    public static final String CONNECT_TIMEOUT = ICH + "connect_timeout";
@@ -72,6 +65,7 @@ public class ConfigurationProperties {
    public static final String AUTH_SERVER_NAME = ICH + "auth_server_name";
    public static final String AUTH_USERNAME = ICH + "auth_username";
    public static final String AUTH_PASSWORD = ICH + "auth_password";
+   public static final String AUTH_TOKEN = ICH + "auth_token";
    public static final String AUTH_REALM = ICH + "auth_realm";
    public static final String AUTH_CLIENT_SUBJECT = ICH + "auth_client_subject";
    public static final String SASL_PROPERTIES_PREFIX = ICH + "sasl_properties";
@@ -79,7 +73,11 @@ public class ConfigurationProperties {
          Pattern.compile('^' + ConfigurationProperties.SASL_PROPERTIES_PREFIX + '.');
    public static final String JAVA_SERIAL_WHITELIST = ICH + "java_serial_whitelist";
    public static final String BATCH_SIZE = ICH + "batch_size";
+   // Statistics properties
    public static final String STATISTICS = ICH + "statistics";
+   public static final String JMX = ICH + "jmx";
+   public static final String JMX_NAME = ICH + "jmx_name";
+   public static final String JMX_DOMAIN = ICH + "jmx_domain";
    // Transaction properties
    public static final String TRANSACTION_MANAGER_LOOKUP = ICH + "transaction.transaction_manager_lookup";
    public static final String TRANSACTION_MODE = ICH + "transaction.transaction_mode";
@@ -108,6 +106,11 @@ public class ConfigurationProperties {
    public static final int DEFAULT_CONNECT_TIMEOUT = 60_000;
    public static final int DEFAULT_MAX_RETRIES = 10;
    public static final int DEFAULT_BATCH_SIZE = 10_000;
+   public static final int DEFAULT_MAX_PENDING_REQUESTS = 5;
+   public static final long DEFAULT_MIN_EVICTABLE_IDLE_TIME = 1800000L;
+   public static final int DEFAULT_MAX_ACTIVE = -1;
+   public static final int DEFAULT_MAX_WAIT = -1;
+   public static final int DEFAULT_MIN_IDLE = -1;
 
    private final TypedProperties props;
 
@@ -129,16 +132,20 @@ public class ConfigurationProperties {
       props.setProperty(SERVER_LIST, serverList);
    }
 
-   public String getTransportFactory() {
-      return props.getProperty(TRANSPORT_FACTORY, ChannelFactory.class.getName());
-   }
-
    public String getMarshaller() {
-      return props.getProperty(MARSHALLER, GenericJBossMarshaller.class.getName());
+      return props.getProperty(MARSHALLER);
    }
 
    public void setMarshaller(String marshaller) {
       props.setProperty(MARSHALLER, marshaller);
+   }
+
+   public String getContextInitializers() {
+      return props.getProperty(CONTEXT_INITIALIZERS);
+   }
+
+   public void setContextInitializers(String contextInitializers) {
+      props.setProperty(CONTEXT_INITIALIZERS, contextInitializers);
    }
 
    public String getAsyncExecutorFactory() {
@@ -373,6 +380,14 @@ public class ConfigurationProperties {
       props.setProperty(AUTH_PASSWORD, authPassword);
    }
 
+   public String getAuthToken() {
+      return props.getProperty(AUTH_TOKEN);
+   }
+
+   public void setAuthToken(String authToken) {
+      props.setProperty(AUTH_TOKEN, authToken);
+   }
+
    public String getAuthRealm() {
       return props.getProperty(AUTH_REALM);
    }
@@ -407,6 +422,30 @@ public class ConfigurationProperties {
 
    public boolean isStatistics() {
       return props.getBooleanProperty(STATISTICS, StatisticsConfiguration.ENABLED.getDefaultValue());
+   }
+
+   public void setJmx(boolean jmx) {
+      props.setProperty(JMX, jmx);
+   }
+
+   public boolean isJmx() {
+      return props.getBooleanProperty(JMX, StatisticsConfiguration.JMX_ENABLED.getDefaultValue());
+   }
+
+   public void setJmxName(String jmxName) {
+      props.setProperty(JMX_NAME, jmxName);
+   }
+
+   public void getJmxName() {
+      props.getProperty(JMX_NAME);
+   }
+
+   public void setJmxDomain(String jmxDomain) {
+      props.setProperty(JMX_DOMAIN, jmxDomain);
+   }
+
+   public void getJmxDomain() {
+      props.getProperty(JMX_DOMAIN);
    }
 
    public String getTransactionManagerLookup() {
@@ -454,7 +493,7 @@ public class ConfigurationProperties {
    }
 
    public int getConnectionPoolMaxActive() {
-      return props.getIntProperty(CONNECTION_POOL_MAX_ACTIVE, -1);
+      return props.getIntProperty(CONNECTION_POOL_MAX_ACTIVE, DEFAULT_MAX_ACTIVE);
    }
 
    public void setConnectionPoolMaxActive(int connectionPoolMaxActive) {
@@ -462,7 +501,7 @@ public class ConfigurationProperties {
    }
 
    public long getConnectionPoolMaxWait() {
-      return props.getLongProperty(CONNECTION_POOL_MAX_WAIT, -1);
+      return props.getLongProperty(CONNECTION_POOL_MAX_WAIT, DEFAULT_MAX_WAIT);
    }
 
    public void setConnectionPoolMaxWait(long connectionPoolMaxWait) {
@@ -470,7 +509,7 @@ public class ConfigurationProperties {
    }
 
    public int gtConnectionPoolMinIdle() {
-      return props.getIntProperty(CONNECTION_POOL_MIN_IDLE, -1);
+      return props.getIntProperty(CONNECTION_POOL_MIN_IDLE, DEFAULT_MIN_IDLE);
    }
 
    public void setConnectionPoolMinIdle(int connectionPoolMinIdle) {
@@ -478,7 +517,7 @@ public class ConfigurationProperties {
    }
 
    public int getConnectionPoolMaxPendingRequests() {
-      return props.getIntProperty(CONNECTION_POOL_MAX_PENDING_REQUESTS, 5);
+      return props.getIntProperty(CONNECTION_POOL_MAX_PENDING_REQUESTS, DEFAULT_MAX_PENDING_REQUESTS);
    }
 
    public void setConnectionPoolMaxPendingRequests(int connectionPoolMaxPendingRequests) {
@@ -486,7 +525,7 @@ public class ConfigurationProperties {
    }
 
    public long setConnectionPoolMinEvictableIdleTime() {
-      return props.getLongProperty(CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, 1800000);
+      return props.getLongProperty(CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, DEFAULT_MIN_EVICTABLE_IDLE_TIME);
    }
 
    public void setConnectionPoolMinEvictableIdleTime(long connectionPoolMinEvictableIdleTime) {

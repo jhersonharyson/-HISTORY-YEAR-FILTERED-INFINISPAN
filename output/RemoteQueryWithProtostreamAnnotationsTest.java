@@ -10,7 +10,8 @@ import java.util.List;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.Search;
-import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
+import org.infinispan.client.hotrod.marshall.MarshallerUtil;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -19,7 +20,7 @@ import org.infinispan.protostream.MessageMarshaller;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.annotations.ProtoDoc;
 import org.infinispan.protostream.annotations.ProtoField;
-import org.infinispan.protostream.annotations.ProtoMessage;
+import org.infinispan.protostream.annotations.ProtoName;
 import org.infinispan.protostream.annotations.ProtoSchemaBuilder;
 import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.QueryFactory;
@@ -37,7 +38,7 @@ import org.testng.annotations.Test;
 public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServerTest {
 
    @ProtoDoc("@Indexed")
-   @ProtoMessage(name = "Memo")
+   @ProtoName("Memo")
    public static class Memo {
 
       private int id;
@@ -64,7 +65,7 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
          this.id = id;
       }
 
-      @ProtoDoc("@IndexedField")
+      @ProtoDoc("@Field(store = Store.YES)")
       @ProtoField(number = 20)
       public String getText() {
          return text;
@@ -74,7 +75,7 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
          this.text = text;
       }
 
-      @ProtoDoc("@IndexedField")
+      @ProtoDoc("@Field(store = Store.YES)")
       @ProtoField(number = 30)
       public Author getAuthor() {
          return author;
@@ -138,9 +139,8 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
 
    @Override
    protected RemoteCacheManager getRemoteCacheManager() {
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
-      clientBuilder.marshaller(new ProtoStreamMarshaller());
       return new RemoteCacheManager(clientBuilder.build());
    }
 
@@ -150,10 +150,10 @@ public class RemoteQueryWithProtostreamAnnotationsTest extends SingleHotRodServe
       String authorSchemaFile = "/* @Indexed */\n" +
             "message Author {\n" +
             "   required int32 id = 1;\n" +
-            "   /* @IndexedField */\n" +
+            "   /* @Field(store = Store.YES) */\n" +
             "   required string name = 2;\n" +
             "}";
-      SerializationContext serializationContext = ProtoStreamMarshaller.getSerializationContext(remoteCacheManager);
+      SerializationContext serializationContext = MarshallerUtil.getSerializationContext(remoteCacheManager);
       serializationContext.registerProtoFiles(FileDescriptorSource.fromString("author.proto", authorSchemaFile));
       serializationContext.registerMarshaller(new MessageMarshaller<Author>() {
          @Override

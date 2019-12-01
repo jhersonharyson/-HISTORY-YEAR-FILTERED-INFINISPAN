@@ -1,7 +1,6 @@
 package org.infinispan.cdi.embedded;
 
 import java.lang.annotation.Annotation;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -118,36 +117,6 @@ public class InfinispanExtensionEmbedded implements Extension {
 
    }
 
-   <K, V> void registerInputCacheCustomBean(@Observes AfterBeanDiscovery event, BeanManager beanManager) {
-
-      @SuppressWarnings("serial")
-      TypeLiteral<Cache<K, V>> typeLiteral = new TypeLiteral<Cache<K, V>>() {};
-      event.addBean(new BeanBuilder<Cache<K, V>>(beanManager)
-               .readFromType(beanManager.createAnnotatedType(typeLiteral.getRawType()))
-               .addType(typeLiteral.getType()).qualifiers(new InputLiteral())
-               .beanLifecycle(new ContextualLifecycle<Cache<K, V>>() {
-
-                  @Override
-                  public Cache<K, V> create(Bean<Cache<K, V>> bean,
-                           CreationalContext<Cache<K, V>> creationalContext) {
-                     return ContextInputCache.get();
-                  }
-               }).create());
-      @SuppressWarnings("serial")
-      TypeLiteral<Collection<K>> typeLiteralKeys = new TypeLiteral<Collection<K>>() {};
-      event.addBean(new BeanBuilder<Collection<K>>(beanManager)
-            .readFromType(beanManager.createAnnotatedType(typeLiteralKeys.getRawType()))
-            .addType(typeLiteralKeys.getType()).qualifiers(new InputLiteral())
-            .beanLifecycle(new ContextualLifecycle<Collection<K>>() {
-
-               @Override
-               public Collection<K> create(Bean<Collection<K>> bean,
-                                         CreationalContext<Collection<K>> creationalContext) {
-                  return ContextInputCache.getKeys();
-               }
-            }).create());
-   }
-
    public Set<InstalledCacheManager> getInstalledEmbeddedCacheManagers(BeanManager beanManager) {
        Set<InstalledCacheManager> installedCacheManagers = new HashSet<>();
        for (Set<Annotation> qualifiers : installedEmbeddedCacheManagers) {
@@ -245,8 +214,8 @@ public class InfinispanExtensionEmbedded implements Extension {
                @Override
                public EmbeddedCacheManager create(Bean<EmbeddedCacheManager> bean,
                      CreationalContext<EmbeddedCacheManager> creationalContext) {
-                  GlobalConfiguration globalConfiguration = new GlobalConfigurationBuilder().globalJmxStatistics()
-                        .cacheManagerName(CACHE_NAME).build();
+                  GlobalConfiguration globalConfiguration = new GlobalConfigurationBuilder()
+                        .cacheManagerName(CACHE_NAME).defaultCacheName("default").build();
                   @SuppressWarnings("unchecked")
                   Bean<Configuration> configurationBean = (Bean<Configuration>) beanManager
                         .resolve(beanManager.getBeans(Configuration.class));

@@ -1,7 +1,7 @@
 package org.infinispan.client.hotrod.event;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNotNull;
 
 import java.io.Serializable;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -15,6 +15,7 @@ import org.infinispan.client.hotrod.annotation.ClientCacheEntryModified;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryRemoved;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.io.ByteBuffer;
@@ -40,7 +41,7 @@ public class CustomMarshallerEventIT extends SingleHotRodServerTest {
 
    @Override
    protected RemoteCacheManager getRemoteCacheManager() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
       builder.marshaller(new IdMarshaller());
       return new RemoteCacheManager(builder.build());
@@ -118,7 +119,7 @@ public class CustomMarshallerEventIT extends SingleHotRodServerTest {
 
       @Override
       public MediaType mediaType() {
-         return MediaType.parse("application/x-custom-id");
+         return MediaType.fromString("application/x-custom-id");
       }
    }
 

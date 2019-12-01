@@ -9,16 +9,15 @@ import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
-import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
-import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
 /**
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-@Test(testName = "client.hotrod.RemoteCacheManagerTest", groups = "functional" )
+@Test(testName = "client.hotrod.RemoteCacheManagerTest", groups = "functional")
 public class RemoteCacheManagerTest extends SingleCacheManagerTest {
 
    HotRodServer hotrodServer;
@@ -27,8 +26,7 @@ public class RemoteCacheManagerTest extends SingleCacheManagerTest {
 
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
-      return TestCacheManagerFactory.createCacheManager(
-            hotRodCacheConfiguration());
+      return TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
    }
 
    @Override
@@ -39,10 +37,15 @@ public class RemoteCacheManagerTest extends SingleCacheManagerTest {
       remoteCacheManager = null;
    }
 
-   @AfterClass(alwaysRun = true)
-   public void release() {
-      TestingUtil.killCacheManagers(cacheManager);
+   @Override
+   protected void teardown() {
       HotRodClientTestingUtil.killServers(hotrodServer);
+
+      super.teardown();
+   }
+
+   @AfterMethod(alwaysRun = true)
+   protected void stopClient() {
       HotRodClientTestingUtil.killRemoteCacheManager(remoteCacheManager);
    }
 
@@ -67,7 +70,7 @@ public class RemoteCacheManagerTest extends SingleCacheManagerTest {
    }
 
    public void testConfigurationConstructor() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder
          .addServer()
             .host("127.0.0.1")

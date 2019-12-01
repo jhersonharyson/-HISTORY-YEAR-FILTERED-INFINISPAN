@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.test;
 
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_THREADNAME_PREFIX;
 import static org.infinispan.distribution.DistributionTestHelper.isFirstOwner;
 import static org.infinispan.server.core.test.ServerTestingUtil.findFreePort;
 
@@ -26,7 +27,8 @@ import org.infinispan.client.hotrod.impl.transaction.TransactionTable;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.commons.api.BasicCache;
-import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
+import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.marshall.ProtoStreamMarshaller;
 import org.infinispan.commons.util.Util;
 import org.infinispan.container.versioning.NumericVersion;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -37,6 +39,7 @@ import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.infinispan.server.hotrod.test.HotRodTestingUtil;
 import org.infinispan.test.TestingUtil;
+import org.infinispan.test.fwk.TestResourceTracker;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.AssertJUnit;
 
@@ -161,7 +164,7 @@ public class HotRodClientTestingUtil {
 
    public static byte[] toBytes(Object key) {
       try {
-         return new GenericJBossMarshaller().objectToByteBuffer(key);
+         return new ProtoStreamMarshaller().objectToByteBuffer(key);
       } catch (Exception e) {
          throw new AssertionError(e);
       }
@@ -176,12 +179,25 @@ public class HotRodClientTestingUtil {
    }
 
    public static RemoteCacheManager getRemoteCacheManager(HotRodServer server) {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.addServer()
-            .host(server.getHost())
-            .port(server.getPort());
+      ConfigurationBuilder builder = newRemoteConfigurationBuilder(server);
       return new InternalRemoteCacheManager(builder.build());
 
+   }
+
+   public static ConfigurationBuilder newRemoteConfigurationBuilder() {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.asyncExecutorFactory()
+             .addExecutorProperty(DEFAULT_EXECUTOR_FACTORY_THREADNAME_PREFIX,
+                                  TestResourceTracker.getCurrentTestShortName() + "-Client-Async");
+      return builder;
+   }
+
+   public static ConfigurationBuilder newRemoteConfigurationBuilder(HotRodServer server) {
+      ConfigurationBuilder builder = newRemoteConfigurationBuilder();
+      builder.addServer()
+             .host(server.getHost())
+             .port(server.getPort());
+      return builder;
    }
 
    public static byte[] getKeyForServer(HotRodServer primaryOwner) {
@@ -189,7 +205,7 @@ public class HotRodClientTestingUtil {
    }
 
    public static byte[] getKeyForServer(HotRodServer primaryOwner, String cacheName) {
-      GenericJBossMarshaller marshaller = new GenericJBossMarshaller();
+      Marshaller marshaller = new ProtoStreamMarshaller();
       Cache<?, ?> cache = cacheName != null
             ? primaryOwner.getCacheManager().getCache(cacheName)
             : primaryOwner.getCacheManager().getCache();

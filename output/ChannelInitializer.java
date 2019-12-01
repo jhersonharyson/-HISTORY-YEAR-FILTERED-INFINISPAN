@@ -2,16 +2,16 @@ package org.infinispan.client.hotrod.impl.transport.netty;
 
 import java.io.File;
 import java.net.SocketAddress;
+import java.security.Principal;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
 import javax.net.ssl.SNIHostName;
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.security.auth.Subject;
 import javax.security.auth.callback.CallbackHandler;
@@ -41,7 +41,8 @@ import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 
 class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
-   private static final CallbackHandler NOOP_HANDLER = callbacks -> {};
+   private static final CallbackHandler NOOP_HANDLER = callbacks -> {
+   };
    private static Log log = LogFactory.getLog(ChannelInitializer.class);
    private static boolean trace = log.isTraceEnabled();
 
@@ -104,26 +105,27 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
 
    private void initSsl(Channel channel) {
       SslConfiguration ssl = configuration.security().ssl();
-      SslContext nettySslContext;
-      SSLContext jdkSslContext = ssl.sslContext();
-      if (jdkSslContext == null) {
+      SslContext sslContext;
+      if (ssl.sslContext() == null) {
          SslContextBuilder builder = SslContextBuilder.forClient();
          try {
             if (ssl.keyStoreFileName() != null) {
-               builder.keyManager(SslContextFactory.getKeyManagerFactory(
-                     ssl.keyStoreFileName(),
-                     ssl.keyStoreType(),
-                     ssl.keyStorePassword(),
-                     ssl.keyStoreCertificatePassword(),
-                     ssl.keyAlias(),
-                     configuration.classLoader()));
+               builder.keyManager(new SslContextFactory()
+                     .keyStoreFileName(ssl.keyStoreFileName())
+                     .keyStoreType(ssl.keyStoreType())
+                     .keyStorePassword(ssl.keyStorePassword())
+                     .keyAlias(ssl.keyAlias())
+                     .keyStoreCertificatePassword(ssl.keyStoreCertificatePassword())
+                     .classLoader(configuration.classLoader())
+                     .getKeyManagerFactory());
             }
             if (ssl.trustStoreFileName() != null) {
-               builder.trustManager(SslContextFactory.getTrustManagerFactory(
-                     ssl.trustStoreFileName(),
-                     ssl.trustStoreType(),
-                     ssl.trustStorePassword(),
-                     configuration.classLoader()));
+               builder.trustManager(new SslContextFactory()
+                     .trustStoreFileName(ssl.trustStoreFileName())
+                     .trustStoreType(ssl.trustStoreType())
+                     .trustStorePassword(ssl.trustStorePassword())
+                     .classLoader(configuration.classLoader())
+                     .getTrustManagerFactory());
             }
             if (ssl.trustStorePath() != null) {
                builder.trustManager(new File(ssl.trustStorePath()));
@@ -131,14 +133,14 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
             if (ssl.protocol() != null) {
                builder.protocols(ssl.protocol());
             }
-            nettySslContext = builder.build();
+            sslContext = builder.build();
          } catch (Exception e) {
             throw new CacheConfigurationException(e);
          }
       } else {
-         nettySslContext = new JdkSslContext(jdkSslContext, true, ClientAuth.NONE);
+         sslContext = new JdkSslContext(ssl.sslContext(), true, ClientAuth.NONE);
       }
-      SslHandler sslHandler = nettySslContext.newHandler(channel.alloc(), ssl.sniHostName(), -1);
+      SslHandler sslHandler = sslContext.newHandler(channel.alloc(), ssl.sniHostName(), -1);
       if (ssl.sniHostName() != null) {
          SSLParameters sslParameters = sslHandler.engine().getSSLParameters();
          sslParameters.setServerNames(Collections.singletonList(new SNIHostName(ssl.sniHostName())));
@@ -151,17 +153,16 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
    private void initAuthentication(Channel channel, AuthenticationConfiguration authentication) throws PrivilegedActionException, SaslException {
       SaslClient saslClient;
       SaslClientFactory scf = getSaslClientFactory(authentication);
+      SslHandler sslHandler = channel.pipeline().get(SslHandler.class);
+      Principal principal = sslHandler != null ? sslHandler.engine().getSession().getLocalPrincipal() : null;
+      String authorizationId = principal != null ? principal.getName() : null;
       if (authentication.clientSubject() != null) {
-         saslClient = Subject.doAs(authentication.clientSubject(), (PrivilegedExceptionAction<SaslClient>) () -> {
-            CallbackHandler callbackHandler = authentication.callbackHandler();
-            if (callbackHandler == null) {
-               callbackHandler = NOOP_HANDLER;
-            }
-            return scf.createSaslClient(new String[]{authentication.saslMechanism()}, null, "hotrod",
-                  authentication.serverName(), authentication.saslProperties(), callbackHandler);
-         });
+         saslClient = Subject.doAs(authentication.clientSubject(), (PrivilegedExceptionAction<SaslClient>) () ->
+               scf.createSaslClient(new String[]{authentication.saslMechanism()}, authorizationId, "hotrod",
+                     authentication.serverName(), authentication.saslProperties(), authentication.callbackHandler())
+         );
       } else {
-         saslClient = scf.createSaslClient(new String[]{authentication.saslMechanism()}, null, "hotrod",
+         saslClient = scf.createSaslClient(new String[]{authentication.saslMechanism()}, authorizationId, "hotrod",
                authentication.serverName(), authentication.saslProperties(), authentication.callbackHandler());
       }
 
@@ -173,17 +174,22 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
          log.tracef("Attempting to load SaslClientFactory implementation with mech=%s, props=%s",
                configuration.saslMechanism(), configuration.saslProperties());
       }
-      Iterator<SaslClientFactory> clientFactories = SaslUtils.getSaslClientFactories(this.getClass().getClassLoader(), true);
-      while (clientFactories.hasNext()) {
-         SaslClientFactory saslFactory = clientFactories.next();
-         String[] saslFactoryMechs = saslFactory.getMechanismNames(configuration.saslProperties());
-         for (String supportedMech : saslFactoryMechs) {
-            if (supportedMech.equals(configuration.saslMechanism())) {
-               if (trace) {
-                  log.tracef("Loaded SaslClientFactory: %s", saslFactory.getClass().getName());
+      Collection<SaslClientFactory> clientFactories = SaslUtils.getSaslClientFactories(this.getClass().getClassLoader(), true);
+      for (SaslClientFactory saslFactory : clientFactories) {
+         try {
+            String[] saslFactoryMechs = saslFactory.getMechanismNames(configuration.saslProperties());
+            for (String supportedMech : saslFactoryMechs) {
+               if (supportedMech.equals(configuration.saslMechanism())) {
+                  if (trace) {
+                     log.tracef("Loaded SaslClientFactory: %s", saslFactory.getClass().getName());
+                  }
+                  return saslFactory;
                }
-               return saslFactory;
+
             }
+         } catch (Throwable t) {
+            // Catch any errors that can happen when calling to a Sasl mech
+            log.tracef("Error while trying to obtain mechanism names supported by SaslClientFactory: %s", saslFactory.getClass().getName());
          }
       }
       throw new IllegalStateException("SaslClientFactory implementation now found");

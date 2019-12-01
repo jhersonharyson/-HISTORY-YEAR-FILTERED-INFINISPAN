@@ -61,6 +61,10 @@ public class RemoteCounterManager implements CounterManager {
    }
 
    @Override
+   public void undefineCounter(String name) {
+   }
+
+   @Override
    public boolean isDefined(String name) {
       return await(factory.newIsDefinedOperation(name).execute());
    }
@@ -72,7 +76,7 @@ public class RemoteCounterManager implements CounterManager {
 
    @Override
    public void remove(String counterName) {
-      await(factory.newRemoveOperation(counterName).execute());
+      await(factory.newRemoveOperation(counterName, true).execute());
    }
 
    @Override

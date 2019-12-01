@@ -46,7 +46,7 @@ public abstract class AbstractAuthenticationTest extends SingleCacheManagerTest 
       hotrodServer.start(serverBuilder.build(), cacheManager);
       log.info("Started server on port: " + hotrodServer.getPort());
 
-      ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder
          .addServer()
          .host("127.0.0.1")
@@ -60,8 +60,7 @@ public abstract class AbstractAuthenticationTest extends SingleCacheManagerTest 
          .enable()
          .saslMechanism("CRAM-MD5")
          .connectionPool()
-            .maxActive(1)
-            .timeBetweenEvictionRuns(2000);
+            .maxActive(1);
       return clientBuilder;
    }
 

@@ -3,12 +3,15 @@ package org.infinispan.client.hotrod.tx;
 import static org.infinispan.test.TestingUtil.extractGlobalComponent;
 import static org.infinispan.test.TestingUtil.replaceComponent;
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
 import static org.testng.AssertJUnit.fail;
 
+import java.lang.reflect.Method;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.transaction.TransactionManager;
 import javax.transaction.xa.XAException;
 import javax.transaction.xa.XAResource;
 import javax.transaction.xa.Xid;
@@ -18,6 +21,7 @@ import org.infinispan.client.hotrod.configuration.TransactionMode;
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.client.hotrod.transaction.lookup.RemoteTransactionManagerLookup;
 import org.infinispan.client.hotrod.transaction.manager.RemoteTransactionManager;
+import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.tx.TransactionImpl;
 import org.infinispan.commons.tx.XidImpl;
 import org.infinispan.configuration.cache.CacheMode;
@@ -28,7 +32,6 @@ import org.infinispan.test.ExceptionRunnable;
 import org.infinispan.transaction.LockingMode;
 import org.infinispan.transaction.lookup.EmbeddedTransactionManagerLookup;
 import org.infinispan.util.ControlledTimeService;
-import org.infinispan.commons.time.TimeService;
 import org.infinispan.util.concurrent.IsolationLevel;
 import org.testng.annotations.Test;
 
@@ -42,7 +45,7 @@ import org.testng.annotations.Test;
 public class RecoveryTest extends MultiHotRodServersTest {
 
    private static final AtomicInteger XID_GENERATOR = new AtomicInteger(1);
-   private final ControlledTimeService timeService = new ControlledTimeService(0);
+   private final ControlledTimeService timeService = new ControlledTimeService();
 
    private static DummyXid newXid() {
       return new DummyXid((byte) XID_GENERATOR.getAndIncrement());
@@ -88,7 +91,102 @@ public class RecoveryTest extends MultiHotRodServersTest {
    }
 
    public void testStartAndFinishScan() throws Exception {
-      XAResource xaResource = xaResource(0);
+      doStartAndFinishScanTest(this::xaResource);
+   }
+
+   public void testStartAndFinishScanWithRecoverableXaResource() throws Exception {
+      doStartAndFinishScanTest(this::recoverableXaResource);
+   }
+
+   public void testRecoveryIteration() throws Exception {
+      doRecoveryIterationTest(this::xaResource);
+   }
+
+   public void testRecoveryIterationWithRecoverableXaResource() throws Exception {
+      doRecoveryIterationTest(this::recoverableXaResource);
+   }
+
+   public void testXaResourceEnlistAfterRecoverable(Method method) throws Exception {
+      String key = method.getName();
+      RemoteCache<String, String> cache = remoteCache(0);
+      TransactionManager tm = remoteTM(0);
+
+      tm.begin();
+      TransactionImpl tx = (TransactionImpl) tm.getTransaction();
+      assertEquals(0, tx.getEnlistedResources().size());
+
+      tx.enlistResource(recoverableXaResource(0));
+      assertEquals(1, tx.getEnlistedResources().size());
+
+      cache.put(key, "value");
+
+      assertEquals(2, tx.getEnlistedResources().size());
+
+      tm.suspend();
+
+      //lets make sure the put is in the transaction. if it is, the key's value in server is null
+      assertNull(cache.get(key));
+
+      tm.resume(tx);
+      tm.commit(); //we should commit
+
+      assertEquals("value", cache.get(key));
+   }
+
+   public void testRecoverableAfterXaResource(Method method) throws Exception {
+      String key = method.getName();
+      RemoteCache<String, String> cache = remoteCache(0);
+      TransactionManager tm = remoteTM(0);
+
+      tm.begin();
+      TransactionImpl tx = (TransactionImpl) tm.getTransaction();
+      assertEquals(0, tx.getEnlistedResources().size());
+
+      cache.put(key, "value");
+
+      assertEquals(1, tx.getEnlistedResources().size());
+
+      tx.enlistResource(recoverableXaResource(0));
+      assertEquals(2, tx.getEnlistedResources().size());
+
+      tm.commit();
+      assertEquals("value", cache.get(key));
+   }
+
+   protected String cacheName() {
+      return "recovery-test-cache";
+   }
+
+   @Override
+   protected void createCacheManagers() throws Throwable {
+      ConfigurationBuilder cacheBuilder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, true);
+      cacheBuilder.transaction().transactionManagerLookup(new EmbeddedTransactionManagerLookup());
+      cacheBuilder.transaction().lockingMode(LockingMode.PESSIMISTIC);
+      cacheBuilder.locking().isolationLevel(IsolationLevel.REPEATABLE_READ);
+      createHotRodServers(numberOfNodes(), new ConfigurationBuilder());
+      for (EmbeddedCacheManager cm : cacheManagers) {
+         //use the same time service in all managers
+         replaceComponent(cm, TimeService.class, timeService, true);
+         //stop reaper. we are going to trigger it manually
+         extractGlobalComponent(cm, GlobalTxTable.class).stop();
+      }
+      defineInAll(cacheName(), cacheBuilder);
+   }
+
+   @Override
+   protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(
+         String host, int serverPort) {
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = super
+            .createHotRodClientConfigurationBuilder(host, serverPort);
+      clientBuilder.forceReturnValues(false);
+      clientBuilder.transaction().transactionManagerLookup(RemoteTransactionManagerLookup.getInstance());
+      clientBuilder.transaction().transactionMode(TransactionMode.FULL_XA);
+      clientBuilder.transaction().timeout(10, TimeUnit.SECONDS);
+      return clientBuilder;
+   }
+
+   private void doStartAndFinishScanTest(XaResourceSupplier xaResourceSupplier) throws Exception {
+      XAResource xaResource = xaResourceSupplier.get(0);
 
       assertInvalidException(() -> xaResource.recover(XAResource.TMENDRSCAN));
 
@@ -104,9 +202,9 @@ public class RecoveryTest extends MultiHotRodServersTest {
       assertInvalidException(() -> xaResource.recover(XAResource.TMNOFLAGS));
    }
 
-   public void testRecoveryIteration() throws Exception {
-      XAResource xaResource0 = xaResource(0);
-      XAResource xaResource1 = xaResource(1);
+   private void doRecoveryIterationTest(XaResourceSupplier xaResourceSupplier) throws Exception {
+      XAResource xaResource0 = xaResourceSupplier.get(0);
+      XAResource xaResource1 = xaResourceSupplier.get(1);
 
       //2 prepared transactions
       remoteTM(0).begin();
@@ -134,42 +232,10 @@ public class RecoveryTest extends MultiHotRodServersTest {
       xaResource1.rollback(xid1);
 
       assertEquals("v", remoteCache(0).get("k0"));
-      assertEquals(null, remoteCache(0).get("k1"));
+      assertNull(remoteCache(0).get("k1"));
 
       xaResource0.forget(xid0);
       xaResource1.forget(xid1);
-   }
-
-   protected String cacheName() {
-      return "recovery-test-cache";
-   }
-
-   @Override
-   protected void createCacheManagers() throws Throwable {
-      ConfigurationBuilder cacheBuilder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, true);
-      cacheBuilder.transaction().transactionManagerLookup(new EmbeddedTransactionManagerLookup());
-      cacheBuilder.transaction().lockingMode(LockingMode.PESSIMISTIC);
-      cacheBuilder.locking().isolationLevel(IsolationLevel.REPEATABLE_READ);
-      createHotRodServers(numberOfNodes(), new ConfigurationBuilder());
-      for (EmbeddedCacheManager cm : cacheManagers) {
-         //use the same time service in all managers
-         replaceComponent(cm, TimeService.class, timeService, true);
-         //stop reaper. we are going to trigger it manually
-         extractGlobalComponent(cm, GlobalTxTable.class).stop();
-      }
-      defineInAll(cacheName(), cacheBuilder);
-   }
-
-   @Override
-   protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(
-         int serverPort) {
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = super
-            .createHotRodClientConfigurationBuilder(serverPort);
-      clientBuilder.forceReturnValues(false);
-      clientBuilder.transaction().transactionManagerLookup(RemoteTransactionManagerLookup.getInstance());
-      clientBuilder.transaction().transactionMode(TransactionMode.FULL_XA);
-      clientBuilder.transaction().timeout(10, TimeUnit.SECONDS);
-      return clientBuilder;
    }
 
    private void assertRecoveryIteration(XAResource xaResource, Xid local, Xid remote) throws Exception {
@@ -222,6 +288,10 @@ public class RecoveryTest extends MultiHotRodServersTest {
       return xaResource;
    }
 
+   private XAResource recoverableXaResource(int index) {
+      return client(index).getXaResource();
+   }
+
    private <K, V> RemoteCache<K, V> remoteCache(int index) {
       return client(index).getCache(cacheName());
    }
@@ -232,6 +302,11 @@ public class RecoveryTest extends MultiHotRodServersTest {
 
    private int numberOfNodes() {
       return 3;
+   }
+
+   @FunctionalInterface
+   private interface XaResourceSupplier {
+      XAResource get(int index) throws Exception;
    }
 
    private static class DummyXid extends XidImpl {

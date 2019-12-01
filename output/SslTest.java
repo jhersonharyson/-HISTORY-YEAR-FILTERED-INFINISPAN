@@ -66,6 +66,7 @@ public class SslTest extends SingleCacheManagerTest {
          serverSSLConfig
                .requireClientAuth(true)
                .trustStoreFileName(serverTrustStore)
+               .trustStoreType("PKCS12")
                .trustStorePassword(STORE_PASSWORD);
       }
       hotrodServer.start(serverBuilder.build(), cacheManager);
@@ -73,7 +74,7 @@ public class SslTest extends SingleCacheManagerTest {
 
       String clientKeyStore = tccl.getResource(altCertPassword ? "keystore_client.jks" : "keystore_client.p12").getPath();
       String clientTrustStore = tccl.getResource("ca.p12").getPath();
-      ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       SslConfigurationBuilder clientSSLConfig = clientBuilder
             .addServer()
                .host("127.0.0.1")
@@ -81,7 +82,6 @@ public class SslTest extends SingleCacheManagerTest {
             .socketTimeout(3000)
             .connectionPool()
                .maxActive(1)
-               .timeBetweenEvictionRuns(2000)
             .security()
             .authentication()
                .disable()
@@ -89,7 +89,8 @@ public class SslTest extends SingleCacheManagerTest {
       if (sslClient) {
          clientSSLConfig
                .trustStoreFileName(clientTrustStore)
-               .trustStorePassword(STORE_PASSWORD);
+               .trustStorePassword(STORE_PASSWORD)
+               .trustStoreType("PKCS12");
          if (clientAuth) {
             clientSSLConfig
                   .keyStoreFileName(clientKeyStore)

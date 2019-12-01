@@ -17,7 +17,8 @@ import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
-import org.infinispan.commons.jmx.PerThreadMBeanServerLookup;
+import org.infinispan.commons.jmx.MBeanServerLookup;
+import org.infinispan.commons.jmx.TestMBeanServerLookup;
 import org.infinispan.configuration.cache.BackupConfiguration.BackupStrategy;
 import org.infinispan.configuration.cache.BackupConfigurationBuilder;
 import org.infinispan.configuration.cache.CacheMode;
@@ -33,16 +34,18 @@ import org.testng.annotations.AfterClass;
 
 abstract class AbstractHotRodSiteFailoverTest extends AbstractXSiteTest {
 
-   static String SITE_A = "LON";
-   static String SITE_B = "NYC";
+   static String SITE_A = "LON-1";
+   static String SITE_B = "NYC-2";
    static int NODES_PER_SITE = 2;
 
-   Map<String, List<HotRodServer>> siteServers = new HashMap<>();
+   protected final MBeanServerLookup mBeanServerLookup = TestMBeanServerLookup.create();
+
+   private Map<String, List<HotRodServer>> siteServers = new HashMap<>();
 
    RemoteCacheManager client(String siteName, Optional<String> backupSiteName) {
       HotRodServer server = siteServers.get(siteName).get(0);
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
-         new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+         HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       /*
        * Use 127.0.0.1 as host address to avoid the first PING after a cluster switch causing an invalidation of the
        * channel pools just to switch from localhost -> 127.0.0.1. This causes immediately subsequent ops to be
@@ -51,7 +54,7 @@ abstract class AbstractHotRodSiteFailoverTest extends AbstractXSiteTest {
       clientBuilder
          .addServer().host("127.0.0.1").port(server.getPort())
          .maxRetries(3); // Some retries so that shutdown nodes can be skipped
-      clientBuilder.statistics().jmxEnable().jmxName(backupSiteName.orElse("default")).mBeanServerLookup(new PerThreadMBeanServerLookup());
+      clientBuilder.statistics().jmxEnable().jmxName(backupSiteName.orElse("default")).mBeanServerLookup(mBeanServerLookup);
       clientBuilder.asyncExecutorFactory().addExecutorProperty(ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_THREADNAME_PREFIX, TestResourceTracker.getCurrentTestShortName());
 
       Optional<Integer> backupPort = backupSiteName.map(name -> {
@@ -74,7 +77,7 @@ abstract class AbstractHotRodSiteFailoverTest extends AbstractXSiteTest {
       return siteServers.get(siteName).get(0).getPort();
    }
 
-   void killSite(String siteName) {
+   protected void killSite(String siteName) {
       log.debugf("Kill site '%s' with ports: %s", siteName,
          siteServers.get(siteName).stream().map(s -> String.valueOf(s.getPort())).collect(Collectors.joining(", ")));
 
@@ -167,5 +170,4 @@ abstract class AbstractHotRodSiteFailoverTest extends AbstractXSiteTest {
    protected HitCountInterceptor getHitCountInterceptor(Cache<?, ?> cache) {
       return cache.getAdvancedCache().getAsyncInterceptorChain().findInterceptorWithClass(HitCountInterceptor.class);
    }
-
 }

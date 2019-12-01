@@ -41,7 +41,9 @@ public class ExecTypedTest extends MultiHotRodServersTest {
             getDefaultClusteredCacheConfig(CacheMode.REPL_SYNC, false));
       defineInAll(NAME, builder);
       execClient = createExecClient();
+      clients.add(execClient);
       addScriptClient = createAddScriptClient();
+      clients.add(addScriptClient);
    }
 
    protected ProtocolVersion getProtocolVersion() {
@@ -50,7 +52,7 @@ public class ExecTypedTest extends MultiHotRodServersTest {
 
    private RemoteCacheManager createExecClient() {
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
-            super.createHotRodClientConfigurationBuilder(servers.get(0).getPort());
+            super.createHotRodClientConfigurationBuilder(servers.get(0));
       clientBuilder.marshaller(new UTF8StringMarshaller());
       clientBuilder.version(getProtocolVersion());
       return new InternalRemoteCacheManager(clientBuilder.build());
@@ -58,7 +60,7 @@ public class ExecTypedTest extends MultiHotRodServersTest {
 
    private RemoteCacheManager createAddScriptClient() {
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
-            super.createHotRodClientConfigurationBuilder(servers.get(0).getPort());
+            super.createHotRodClientConfigurationBuilder(servers.get(0));
       clientBuilder.version(getProtocolVersion());
       return new InternalRemoteCacheManager(clientBuilder.build());
    }

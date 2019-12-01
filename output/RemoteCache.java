@@ -46,13 +46,6 @@ import org.infinispan.query.dsl.Query;
  * server, which might not be needed. The flags as set by the {@link org.infinispan.client.hotrod.RemoteCache#withFlags(Flag...)}
  * operation only apply for the very next operation executed <b>by the same thread</b> on the RemoteCache.
  * <p/>
- * <b><a href="http://community.jboss.org/wiki/Eviction">Eviction and expiration</a></b>: Unlike local {@link
- * org.infinispan.Cache} cache, which allows specifying time values with any granularity (as defined by {@link
- * TimeUnit}), HotRod only supports seconds as time units. If a different time unit is used instead, HotRod will
- * transparently convert it to seconds, using {@link java.util.concurrent.TimeUnit#toSeconds(long)} method. This might
- * result in loss of precision for values specified as nanos or milliseconds. <br/> Another fundamental difference is in
- * the case of lifespan (naturally does NOT apply for max idle): If number of seconds is bigger than 30 days, this
- * number of seconds is treated as UNIX time and so, represents the number of seconds since 1/1/1970. <br/>
  *
  * <b>Note on default expiration values:</b> Due to limitations on the first
  * version of the protocol, it's not possible for clients to rely on default
@@ -444,31 +437,6 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    RemoteCacheManager getRemoteCacheManager();
 
    /**
-    * Bulk get operations, returns all the entries within the remote cache.
-    *
-    * @return the returned values depend on the configuration of the back-end infinispan servers. Read <a
-    *         href="http://community.jboss.org/wiki/HotRodBulkGet-Design#Server_side">this</a> for more details. The
-    *         returned Map is unmodifiable.
-    *
-    * @deprecated Bulk retrievals can be quite expensive if for large data sets.
-    * Alternatively, the different <code>retrieveEntries*</code> methods offer
-    * lazy, pull-style, methods that retrieve bulk data more efficiently.
-    */
-   @Deprecated
-   Map<K, V> getBulk();
-
-   /**
-    * Same as {@link #getBulk()}, but limits the returned set of values to the specified size. No ordering is guaranteed, and there is no
-    * guarantee that "size" elements are returned( e.g. if the number of elements in the back-end server is smaller that "size")
-    *
-    * @deprecated Bulk retrievals can be quite expensive if for large data sets.
-    * Alternatively, the different <code>retrieveEntries*</code> methods offer
-    * lazy, pull-style, methods that retrieve bulk data more efficiently.
-    */
-   @Deprecated
-   Map<K, V> getBulk(int size);
-
-   /**
     * Retrieves all of the entries for the provided keys.  A key will not be present in
     * the resulting map if the entry was not found in the cache.
     * @param keys The keys to find values for
@@ -502,7 +470,10 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    /**
     * Returns a set with all the listeners registered by this client for the
     * given cache.
+    *
+    * @deprecated Since 10.0, with no replacement
     */
+   @Deprecated
    Set<Object> getListeners();
 
    /**
@@ -537,4 +508,9 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * Return the currently {@link DataFormat} being used.
     */
    DataFormat getDataFormat();
+
+   /**
+    * @return {@code true} if the cache can participate in a transaction, {@code false} otherwise.
+    */
+   boolean isTransactional();
 }

@@ -6,12 +6,15 @@ import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheCon
 import static org.testng.Assert.assertEquals;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.inject.Disposes;
 import javax.enterprise.inject.Produces;
 import javax.inject.Inject;
 
 import org.infinispan.cdi.remote.Remote;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
+import org.infinispan.commons.test.ThreadLeakChecker;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.core.test.ServerTestingUtil;
 import org.infinispan.server.hotrod.HotRodServer;
@@ -65,6 +68,9 @@ public class DefaultCacheTest extends Arquillian {
    public void afterMethod() {
       TestingUtil.killCacheManagers(embeddedCacheManager);
       ServerTestingUtil.killServer(hotRodServer);
+
+      // RemoteCacheProducer leaks thread, see ISPN-9935
+      ThreadLeakChecker.ignoreThreadsContaining("HotRod-client-async-pool-");
    }
 
    public void testDefaultCache() {
@@ -84,8 +90,10 @@ public class DefaultCacheTest extends Arquillian {
    @ApplicationScoped
    public static RemoteCacheManager defaultRemoteCacheManager() {
       return new RemoteCacheManager(
-            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder()
-                  .addServers("127.0.0.1:" + hotRodServer.getPort()).build());
+         HotRodClientTestingUtil.newRemoteConfigurationBuilder(hotRodServer).build());
    }
 
+   static void stopRemoteCacheManager(@Disposes RemoteCacheManager remoteCacheManager) {
+      remoteCacheManager.stop();
+   }
 }

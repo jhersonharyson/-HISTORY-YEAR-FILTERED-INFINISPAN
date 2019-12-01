@@ -15,6 +15,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -32,12 +33,13 @@ import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
-import org.infinispan.commons.util.concurrent.ConcurrentHashSet;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.server.hotrod.HotRodServer;
+import org.infinispan.test.fwk.TestResourceTracker;
 import org.testng.annotations.Test;
 
 @Test(groups = "stress", testName = "client.hotrod.event.ClusterClientEventStressTest", timeOut = 15*60*1000)
@@ -62,7 +64,7 @@ public class ClusterClientEventStressTest extends MultiHotRodServersTest {
 //   public static final int NUM_STORES_PER_SERVER = NUM_STORES / NUM_SERVERS;
 //   public static final int NUM_ENTRIES_PER_SERVER = (NUM_STORES * NUM_OWNERS) / NUM_SERVERS;
 
-   static Set<String> ALL_KEYS = new ConcurrentHashSet<>();
+   static Set<String> ALL_KEYS = ConcurrentHashMap.newKeySet();
 
    static ExecutorService EXEC = Executors.newCachedThreadPool();
 
@@ -84,7 +86,7 @@ public class ClusterClientEventStressTest extends MultiHotRodServersTest {
 
    RemoteCacheManager getRemoteCacheManager(int port) {
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder builder =
-            new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+            HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServer().host("127.0.0.1").port(port);
       RemoteCacheManager rcm = new InternalRemoteCacheManager(builder.build());
       rcm.getCache();
@@ -100,6 +102,7 @@ public class ClusterClientEventStressTest extends MultiHotRodServersTest {
    }
 
    public void testAddClientListenerDuringOperations() {
+      TestResourceTracker.testThreadStarted(this);
       CyclicBarrier barrier = new CyclicBarrier((NUM_CLIENTS * NUM_THREADS_PER_CLIENT) + 1);
       List<Future<Void>> futures = new ArrayList<>(NUM_CLIENTS * NUM_THREADS_PER_CLIENT);
       List<ClientEntryListener> listeners = new ArrayList<>(NUM_CLIENTS);
@@ -110,9 +113,9 @@ public class ClusterClientEventStressTest extends MultiHotRodServersTest {
       for (Entry<String, RemoteCacheManager> e : remotecms.entrySet()) {
          RemoteCache<String, String> remote = e.getValue().getCache();
 
-//         ClientEntryListener listener = new ClientEntryListener();
-//         listeners.add(listener);
-//         remote.addClientListener(listener);
+         ClientEntryListener listener = new ClientEntryListener();
+         listeners.add(listener);
+         remote.addClientListener(listener);
 
          for (int i = 0; i < NUM_THREADS_PER_CLIENT; i++) {
             String prefix = String.format("%s-t%d-", e.getKey(), i);
@@ -130,8 +133,8 @@ public class ClusterClientEventStressTest extends MultiHotRodServersTest {
 //      log.debugf("Put operations completed, assert statistics");
 //      assertStatsAfter(remotecms);
 
-//      log.debugf("Stats asserted, wait for events...");
-//      eventuallyEquals(NUM_EVENTS, () -> countEvents(listeners));
+      log.debugf("Stats asserted, wait for events...");
+      eventuallyEquals(NUM_EVENTS, () -> countEvents(listeners));
    }
 
    int countEvents(List<ClientEntryListener> listeners) {

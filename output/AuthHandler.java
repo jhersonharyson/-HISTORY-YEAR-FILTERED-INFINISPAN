@@ -1,6 +1,7 @@
 package org.infinispan.client.hotrod.impl.transport.netty;
 
 import static io.netty.util.internal.EmptyArrays.EMPTY_BYTES;
+import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
@@ -43,11 +44,11 @@ class AuthHandler extends ActivationHandler {
    }
 
    @Override
-   public void channelActive(ChannelHandlerContext ctx) throws Exception {
+   public void channelActive(ChannelHandlerContext ctx) {
       Channel channel = ctx.channel();
       operationsFactory.newAuthMechListOperation(channel).execute().thenCompose(serverMechs -> {
          if (!serverMechs.contains(authentication.saslMechanism())) {
-            throw log.unsupportedMech(authentication.saslMechanism(), serverMechs);
+            throw HOTROD.unsupportedMech(authentication.saslMechanism(), serverMechs);
          }
          if (trace) {
             log.tracef("Authenticating using mech: %s", authentication.saslMechanism());

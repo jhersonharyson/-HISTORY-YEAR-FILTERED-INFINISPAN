@@ -43,7 +43,7 @@ public final class CodecUtils {
       if (keyMediaTypeDefinition == 0) return null;
       if (keyMediaTypeDefinition == 1) return readPredefinedMediaType(byteBuf);
       if (keyMediaTypeDefinition == 2) return readCustomMediaType(byteBuf);
-      throw new HotRodClientException("Unknown MediaType definition");
+      throw new HotRodClientException("Unknown MediaType definition: " + keyMediaTypeDefinition);
    }
 
    static MediaType readPredefinedMediaType(ByteBuf buffer) {
@@ -55,7 +55,7 @@ public final class CodecUtils {
    static MediaType readCustomMediaType(ByteBuf buffer) {
       byte[] customMediaTypeBytes = ByteBufUtil.readArray(buffer);
       String strCustomMediaType = new String(customMediaTypeBytes, CharsetUtil.UTF_8);
-      MediaType customMediaType = MediaType.parse(strCustomMediaType);
+      MediaType customMediaType = MediaType.fromString(strCustomMediaType);
       return customMediaType.withParameters(readMediaTypeParams(buffer));
    }
 

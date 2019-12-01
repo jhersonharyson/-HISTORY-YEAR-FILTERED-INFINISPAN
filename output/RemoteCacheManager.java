@@ -1,11 +1,15 @@
 package org.infinispan.client.hotrod;
 
 import static org.infinispan.client.hotrod.impl.Util.await;
+import static org.infinispan.client.hotrod.impl.Util.checkTransactionSupport;
+import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.SocketAddress;
+import java.security.Provider;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -16,6 +20,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -23,6 +28,7 @@ import java.util.regex.Pattern;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.transaction.TransactionManager;
+import javax.transaction.xa.XAResource;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
@@ -32,16 +38,17 @@ import org.infinispan.client.hotrod.configuration.TransactionMode;
 import org.infinispan.client.hotrod.counter.impl.RemoteCounterManager;
 import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
+import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.impl.MarshallerRegistry;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.RemoteCacheManagerAdminImpl;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
-import org.infinispan.client.hotrod.impl.operations.PingOperation;
+import org.infinispan.client.hotrod.impl.operations.PingResponse;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
-import org.infinispan.client.hotrod.impl.protocol.CodecFactory;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.transaction.SyncModeTransactionTable;
+import org.infinispan.client.hotrod.impl.transaction.TransactionOperationFactory;
 import org.infinispan.client.hotrod.impl.transaction.TransactionTable;
 import org.infinispan.client.hotrod.impl.transaction.TransactionalRemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.transaction.XaModeTransactionTable;
@@ -49,28 +56,29 @@ import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.jmx.RemoteCacheManagerMXBean;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.client.hotrod.marshall.BytesOnlyMarshaller;
 import org.infinispan.client.hotrod.near.NearCacheService;
 import org.infinispan.commons.api.CacheContainerAdmin;
 import org.infinispan.commons.executors.ExecutorFactory;
-import org.infinispan.commons.jmx.JmxUtil;
 import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.marshall.ProtoStreamMarshaller;
 import org.infinispan.commons.marshall.UTF8StringMarshaller;
-import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
 import org.infinispan.commons.time.DefaultTimeService;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.Util;
-import org.infinispan.commons.util.uberjar.ManifestUberJarDuplicatedJarsWarner;
-import org.infinispan.commons.util.uberjar.UberJarDuplicatedJarsWarner;
+import org.infinispan.commons.util.Version;
 import org.infinispan.counter.api.CounterManager;
+import org.infinispan.protostream.SerializationContext;
+import org.infinispan.protostream.SerializationContextInitializer;
+import org.wildfly.security.WildFlyElytronProvider;
 
 /**
- * <p>Factory for {@link org.infinispan.client.hotrod.RemoteCache}s.</p>
- * <p>In order to be able to use a {@link org.infinispan.client.hotrod.RemoteCache}, the
- * {@link org.infinispan.client.hotrod.RemoteCacheManager} must be started first: this instantiates connections to
- * Hot Rod server(s). Starting the {@link org.infinispan.client.hotrod.RemoteCacheManager} can be done either at
- * creation by passing start==true to the constructor or by using a constructor that does that for you; or after
- * construction by calling {@link #start()}.</p>
+ * <p>Factory for {@link RemoteCache}s.</p>
+ * <p>In order to be able to use a {@link RemoteCache}, the
+ * {@link RemoteCacheManager} must be started first: this instantiates connections to Hot Rod server(s). Starting the
+ * {@link RemoteCacheManager} can be done either at creation by passing start==true to the constructor or by using a
+ * constructor that does that for you; or after construction by calling {@link #start()}.</p>
  * <p><b>NOTE:</b> this is an "expensive" object, as it manages a set of persistent TCP connections to the Hot Rod
  * servers. It is recommended to only have one instance of this per JVM, and to cache it between calls to the server
  * (i.e. remoteCache operations)</p>
@@ -84,7 +92,6 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
 
    private static final Log log = LogFactory.getLog(RemoteCacheManager.class);
 
-   public static final String DEFAULT_CACHE_NAME = "___defaultcache";
    public static final String HOTROD_CLIENT_PROPERTIES = "hotrod-client.properties";
    public static final String JSON_STRING_ARRAY_ELEMENT_REGEX = "(?:\")([^\"]*)(?:\",?)";
 
@@ -102,13 +109,36 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    private final Runnable stop = this::stop;
    private final RemoteCounterManager counterManager;
    private final TransactionTable syncTransactionTable;
-   private final TransactionTable xaTransactionTable;
+   private final XaModeTransactionTable xaTransactionTable;
    private ObjectName mbeanObjectName;
    private TimeService timeService = DefaultTimeService.INSTANCE;
+   private ExecutorService asyncExecutorService;
+
+   static {
+      // Register only the providers that matter to us
+      try {
+         // Elytron >= 1.8
+         for (String name : Arrays.asList(
+               "org.wildfly.security.sasl.plain.WildFlyElytronSaslPlainProvider",
+               "org.wildfly.security.sasl.digest.WildFlyElytronSaslDigestProvider",
+               "org.wildfly.security.sasl.external.WildFlyElytronSaslExternalProvider",
+               "org.wildfly.security.sasl.oauth2.WildFlyElytronSaslOAuth2Provider",
+               "org.wildfly.security.sasl.scram.WildFlyElytronSaslScramProvider",
+               "org.wildfly.security.sasl.gssapi.WildFlyElytronSaslGssapiProvider",
+               "org.wildfly.security.sasl.gs2.WildFlyElytronSaslGs2Provider"
+         )) {
+            Provider provider = (Provider)Class.forName(name).getConstructor(new Class[]{}).newInstance(new Object[]{});
+            SecurityActions.addSecurityProvider(provider);
+         }
+      } catch (Exception e) {
+         // Elytron < 1.8
+         SecurityActions.addSecurityProvider(new WildFlyElytronProvider());
+      }
+   }
 
    /**
-    * Create a new RemoteCacheManager using the supplied {@link Configuration}.
-    * The RemoteCacheManager will be started automatically
+    * Create a new RemoteCacheManager using the supplied {@link Configuration}. The RemoteCacheManager will be started
+    * automatically
     *
     * @param configuration the configuration to use for this RemoteCacheManager
     * @since 5.3
@@ -118,8 +148,8 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    /**
-    * Create a new RemoteCacheManager using the supplied {@link Configuration}.
-    * The RemoteCacheManager will be started automatically only if the start parameter is true
+    * Create a new RemoteCacheManager using the supplied {@link Configuration}. The RemoteCacheManager will be started
+    * automatically only if the start parameter is true
     *
     * @param configuration the configuration to use for this RemoteCacheManager
     * @param start         whether or not to start the manager on return from the constructor.
@@ -144,8 +174,8 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
 
    /**
     * <p>Similar to {@link RemoteCacheManager#RemoteCacheManager(Configuration, boolean)}, but it will try to lookup
-    * the config properties in the classpath, in a file named <tt>hotrod-client.properties</tt>. If no properties can
-    * be found in the classpath, defaults will be used, attempting to connect to <tt>127.0.0.1:11222</tt></p>
+    * the config properties in the classpath, in a file named <tt>hotrod-client.properties</tt>. If no properties can be
+    * found in the classpath, defaults will be used, attempting to connect to <tt>127.0.0.1:11222</tt></p>
     *
     * <p>Refer to
     * {@link ConfigurationBuilder} for a detailed list of available properties.</p>
@@ -159,7 +189,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       builder.classLoader(cl);
       InputStream stream = FileLookupFactory.newInstance().lookupFile(HOTROD_CLIENT_PROPERTIES, cl);
       if (stream == null) {
-         log.couldNotFindPropertiesFile(HOTROD_CLIENT_PROPERTIES);
+         HOTROD.couldNotFindPropertiesFile(HOTROD_CLIENT_PROPERTIES);
       } else {
          try {
             builder.withProperties(loadFromStream(stream));
@@ -172,7 +202,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       this.syncTransactionTable = new SyncModeTransactionTable(configuration.transaction().timeout());
       this.xaTransactionTable = new XaModeTransactionTable(configuration.transaction().timeout());
       registerMBean();
-      if (start) start();
+      if (start) actualStart();
    }
 
    /**
@@ -183,39 +213,39 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    private void registerMBean() {
-      try {
-         StatisticsConfiguration configuration = this.configuration.statistics();
-         if (configuration.jmxEnabled()) {
+      StatisticsConfiguration configuration = this.configuration.statistics();
+      if (configuration.jmxEnabled()) {
+         try {
             MBeanServer mbeanServer = configuration.mbeanServerLookup().getMBeanServer();
-            String groupName = String.format("type=HotRodClient,name=%s", configuration.jmxName());
-            String jmxDomain = JmxUtil.buildJmxDomain(configuration.jmxDomain(), mbeanServer, groupName);
-            mbeanObjectName = new ObjectName(String.format("%s:%s", jmxDomain, groupName));
-            JmxUtil.registerMBean(this, mbeanObjectName, mbeanServer);
+            mbeanObjectName = new ObjectName(String.format("%s:type=HotRodClient,name=%s", configuration.jmxDomain(), configuration.jmxName()));
+            mbeanServer.registerMBean(this, mbeanObjectName);
+         } catch (Exception e) {
+            throw HOTROD.jmxRegistrationFailure(e);
          }
-      } catch (Exception e) {
-         log.warn("MBean registration failed", e);
       }
    }
 
    private void unregisterMBean() {
-      try {
-         StatisticsConfiguration configuration = this.configuration.statistics();
-         if (configuration.jmxEnabled() && mbeanObjectName != null) {
-            MBeanServer mbeanServer = configuration.mbeanServerLookup().getMBeanServer();
-            JmxUtil.unregisterMBean(mbeanObjectName, mbeanServer);
+      if (mbeanObjectName != null) {
+         try {
+            MBeanServer mBeanServer = configuration.statistics().mbeanServerLookup().getMBeanServer();
+            if (mBeanServer.isRegistered(mbeanObjectName)) {
+               mBeanServer.unregisterMBean(mbeanObjectName);
+            } else {
+               HOTROD.debugf("MBean not registered: %s", mbeanObjectName);
+            }
+         } catch (Exception e) {
+            throw HOTROD.jmxUnregistrationFailure(e);
          }
-      } catch (Exception e) {
-         log.warn("MBean unregistration failed", e);
       }
    }
 
    /**
-    * Retrieves a named cache from the remote server if the cache has been
-    * defined, otherwise if the cache name is undefined, it will return null.
+    * Retrieves a named cache from the remote server if the cache has been defined, otherwise if the cache name is
+    * undefined, it will return null.
     *
     * @param cacheName name of cache to retrieve
-    * @return a cache instance identified by cacheName or null if the cache
-    * name has not been defined
+    * @return a cache instance identified by cacheName or null if the cache name has not been defined
     */
    @Override
    public <K, V> RemoteCache<K, V> getCache(String cacheName) {
@@ -239,8 +269,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    /**
     * Retrieves the default cache from the remote server.
     *
-    * @return a remote cache instance that can be used to send requests to the
-    * default cache in the server
+    * @return a remote cache instance that can be used to send requests to the default cache in the server
     */
    @Override
    public <K, V> RemoteCache<K, V> getCache() {
@@ -261,41 +290,66 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
 
    public CompletableFuture<Void> startAsync() {
       // The default async executor service is dedicated for Netty, therefore here we'll use common FJP.
-      return CompletableFuture.runAsync(start);
+      // TODO: This needs to be fixed at some point to not use an additional thread
+      return CompletableFuture.runAsync(start, ForkJoinPool.commonPool());
    }
 
    public CompletableFuture<Void> stopAsync() {
-      return CompletableFuture.runAsync(stop);
+      // The default async executor service is dedicated for Netty, therefore here we'll use common FJP.
+      // TODO: This needs to be fixed at some point to not use an additional thread
+      return CompletableFuture.runAsync(stop, ForkJoinPool.commonPool());
    }
 
    @Override
    public void start() {
-      channelFactory = new ChannelFactory();
+      if (!started) {
+         actualStart();
+      }
+   }
+
+   private void actualStart() {
+      log.debugf("Starting remote cache manager %x", System.identityHashCode(this));
+      channelFactory = createChannelFactory();
 
       if (marshaller == null) {
          marshaller = configuration.marshaller();
          if (marshaller == null) {
             Class<? extends Marshaller> clazz = configuration.marshallerClass();
-            if (clazz == GenericJBossMarshaller.class && !configuration.serialWhitelist().isEmpty())
-               marshaller = new GenericJBossMarshaller(configuration.getClassWhiteList());
-            else
+            if (marshaller == null) {
                marshaller = Util.getInstance(clazz);
+            }
          }
       }
-      marshallerRegistry.registerMarshaller(marshaller);
+      if (!configuration.serialWhitelist().isEmpty()) {
+         marshaller.initialize(configuration.getClassWhiteList());
+      }
+      if (marshaller instanceof ProtoStreamMarshaller) {
+         SerializationContext ctx = ((ProtoStreamMarshaller) marshaller).getSerializationContext();
+         for (SerializationContextInitializer sci : configuration.getContextInitializers()) {
+            sci.registerSchema(ctx);
+            sci.registerMarshallers(ctx);
+         }
+      }
+      marshallerRegistry.registerMarshaller(BytesOnlyMarshaller.INSTANCE);
       marshallerRegistry.registerMarshaller(new UTF8StringMarshaller());
+      // Register this one last, so it will replace any that may support the same media type
+      marshallerRegistry.registerMarshaller(marshaller);
 
-      codec = CodecFactory.getCodec(configuration.version());
+      codec = configuration.version().getCodec();
 
-      listenerNotifier = new ClientListenerNotifier(codec, marshaller, channelFactory, configuration.getClassWhiteList());
+      listenerNotifier = new ClientListenerNotifier(codec, marshaller, channelFactory, configuration);
       ExecutorFactory executorFactory = configuration.asyncExecutorFactory().factory();
       if (executorFactory == null) {
          executorFactory = Util.getInstance(configuration.asyncExecutorFactory().factoryClass());
       }
-      ExecutorService asyncExecutorService = executorFactory.getExecutor(configuration.asyncExecutorFactory().properties());
+      asyncExecutorService = executorFactory.getExecutor(configuration.asyncExecutorFactory().properties());
       channelFactory.start(codec, configuration, defaultCacheTopologyId, marshaller, asyncExecutorService,
             listenerNotifier, Collections.singletonList(listenerNotifier::failoverListeners), marshallerRegistry);
       counterManager.start(channelFactory, codec, configuration, listenerNotifier);
+
+      TransactionOperationFactory txOperationFactory = new TransactionOperationFactory(configuration, channelFactory, codec);
+      syncTransactionTable.start(txOperationFactory);
+      xaTransactionTable.start(txOperationFactory);
 
       synchronized (cacheName2RemoteCache) {
          for (RemoteCacheHolder rcc : cacheName2RemoteCache.values()) {
@@ -304,20 +358,20 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       }
 
       // Print version to help figure client version run
-      log.version(RemoteCacheManager.class.getPackage().getImplementationVersion());
-
-      warnAboutUberJarDuplicates();
+      HOTROD.version(Version.printVersion());
 
       started = true;
    }
 
-   private final void warnAboutUberJarDuplicates() {
-      UberJarDuplicatedJarsWarner scanner = new ManifestUberJarDuplicatedJarsWarner();
-      scanner.isClasspathCorrectAsync()
-            .thenAcceptAsync(isClasspathCorrect -> {
-               if (!isClasspathCorrect)
-                  log.warnAboutUberJarDuplicates();
-            });
+   public ChannelFactory createChannelFactory() {
+      return new ChannelFactory();
+   }
+
+   @Override
+   public boolean isTransactional(String cacheName) {
+      ClientStatistics stats = ClientStatistics.dummyClientStatistics(timeService);
+      OperationsFactory factory = createOperationFactory(cacheName, false, stats);
+      return checkTransactionSupport(cacheName, factory, log);
    }
 
    public MarshallerRegistry getMarshallerRegistry() {
@@ -325,15 +379,15 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    /**
-    * Stop the remote cache manager, disconnecting all existing connections.
-    * As part of the disconnection, all registered client cache listeners will
-    * be removed since client no longer can receive callbacks.
+    * Stop the remote cache manager, disconnecting all existing connections. As part of the disconnection, all
+    * registered client cache listeners will be removed since client no longer can receive callbacks.
     */
    @Override
    public void stop() {
       if (isStarted()) {
+         log.debugf("Stopping remote cache manager %x", System.identityHashCode(this));
          synchronized (cacheName2RemoteCache) {
-            for(Map.Entry<RemoteCacheKey, RemoteCacheHolder> cache : cacheName2RemoteCache.entrySet()) {
+            for (Map.Entry<RemoteCacheKey, RemoteCacheHolder> cache : cacheName2RemoteCache.entrySet()) {
                cache.getValue().remoteCache().stop();
             }
             cacheName2RemoteCache.clear();
@@ -381,6 +435,9 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
             if (transactionMode == TransactionMode.NONE) {
                result = createRemoteCache(cacheName);
             } else {
+               if (!this.isTransactional(cacheName)) {
+                  throw HOTROD.cacheDoesNotSupportTransactions(cacheName);
+               }
                TransactionManager transactionManager = getTransactionManager(transactionManagerOverride);
                result = createRemoteTransactionalCache(cacheName, forceReturnValueOverride,
                      transactionMode == TransactionMode.FULL_XA, transactionMode, transactionManager);
@@ -388,14 +445,10 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
             RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride);
             startRemoteCache(rcc);
 
-            PingOperation.PingResponse pingResponse = result.resolveStorage();
+            PingResponse pingResponse = result.resolveStorage();
             // If ping not successful assume that the cache does not exist
-            // Default cache is always started, so don't do for it
-            if (!cacheName.equals(RemoteCacheManager.DEFAULT_CACHE_NAME) && pingResponse.isCacheNotFound()) {
+            if (pingResponse.isCacheNotFound()) {
                return null;
-            }
-            if (transactionMode != TransactionMode.NONE) {
-               ((TransactionalRemoteCacheImpl<K, V>) result).checkTransactionSupport();
             }
 
             result.start();
@@ -417,7 +470,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
                   log.tracef("Enabling near-caching for cache '%s'", cacheName);
                }
                return new InvalidatedNearRemoteCache<>(this, cacheName, timeService,
-                     createNearCacheService(configuration.nearCache()));
+                     createNearCacheService(cacheName, configuration.nearCache()));
             }
             // else fallthrough
          case DISABLED:
@@ -426,18 +479,35 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       }
    }
 
+   protected <K, V> NearCacheService<K, V> createNearCacheService(String cacheName, NearCacheConfiguration cfg) {
+      return this.createNearCacheService(cfg);
+   }
+
+   /**
+    * @deprecated Replaced by {@code #createNearCacheService(String, NearCacheConfiguration)}.
+    */
+   @Deprecated
    protected <K, V> NearCacheService<K, V> createNearCacheService(NearCacheConfiguration cfg) {
       return NearCacheService.create(cfg, listenerNotifier);
    }
 
    private void startRemoteCache(RemoteCacheHolder remoteCacheHolder) {
       RemoteCacheImpl<?, ?> remoteCache = remoteCacheHolder.remoteCache();
-      OperationsFactory operationsFactory = new OperationsFactory(
-            channelFactory, remoteCache.getName(), remoteCacheHolder.forceReturnValue, codec, listenerNotifier,
-            configuration, remoteCache.getClientStatistics());
-      remoteCache.init(marshaller, operationsFactory,
-            configuration.keySizeEstimate(), configuration.valueSizeEstimate(), configuration.batchSize(), mbeanObjectName);
+      OperationsFactory operationsFactory = createOperationFactory(remoteCache.getName(),
+            remoteCacheHolder.forceReturnValue, remoteCache.getClientStatistics());
+      initRemoteCache(remoteCache, operationsFactory);
       remoteCache.start();
+   }
+
+   // Method that handles cache initialization - needed as a placeholder
+   private void initRemoteCache(RemoteCacheImpl remoteCache, OperationsFactory operationsFactory) {
+      if (configuration.statistics().jmxEnabled()) {
+         remoteCache.init(marshaller, operationsFactory, configuration.keySizeEstimate(),
+               configuration.valueSizeEstimate(), configuration.batchSize(), mbeanObjectName);
+      } else {
+         remoteCache.init(marshaller, operationsFactory, configuration.keySizeEstimate(),
+               configuration.valueSizeEstimate(), configuration.batchSize());
+      }
    }
 
    @Override
@@ -446,9 +516,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    public static byte[] cacheNameBytes(String cacheName) {
-      return cacheName.equals(DEFAULT_CACHE_NAME)
-            ? HotRodConstants.DEFAULT_CACHE_NAME_BYTES
-            : cacheName.getBytes(HotRodConstants.HOTROD_STRING_CHARSET);
+      return cacheName.getBytes(HotRodConstants.HOTROD_STRING_CHARSET);
    }
 
    public static byte[] cacheNameBytes() {
@@ -468,7 +536,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    @Override
-   public void close() throws IOException {
+   public void close() {
       stop();
    }
 
@@ -488,6 +556,15 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
     */
    public ChannelFactory getChannelFactory() {
       return channelFactory;
+   }
+
+   /**
+    * Returns the {@link XAResource} which can be used to do transactional recovery.
+    *
+    * @return An instance of {@link XAResource}
+    */
+   public XAResource getXaResource() {
+      return xaTransactionTable.getXaResource();
    }
 
    private TransactionManager getTransactionManager(TransactionManager override) {
@@ -516,8 +593,8 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    private <K, V> TransactionalRemoteCacheImpl<K, V> createRemoteTransactionalCache(String cacheName,
-         boolean forceReturnValues, boolean recoveryEnabled, TransactionMode transactionMode,
-         TransactionManager transactionManager) {
+                                                                                    boolean forceReturnValues, boolean recoveryEnabled, TransactionMode transactionMode,
+                                                                                    TransactionManager transactionManager) {
       return new TransactionalRemoteCacheImpl<>(this, cacheName, forceReturnValues, recoveryEnabled, transactionManager,
             getTransactionTable(transactionMode), timeService);
    }
@@ -538,17 +615,27 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
 
    @Override
    public int getConnectionCount() {
-      int count = channelFactory.getNumActive() + channelFactory.getNumIdle();
-      int maxAllowed = configuration.connectionPool().maxTotal();
-      if (maxAllowed > 0)
-         return Math.min(maxAllowed, count);
-      else
-         return count;
+      return channelFactory.getNumActive() + channelFactory.getNumIdle();
    }
 
    @Override
    public int getIdleConnectionCount() {
       return channelFactory.getNumIdle();
+   }
+
+   @Override
+   public long getRetries() {
+      return channelFactory.getRetries();
+   }
+
+   private OperationsFactory createOperationFactory(String cacheName, boolean forceReturnValue,
+                                                    ClientStatistics stats) {
+      return new OperationsFactory(channelFactory, cacheName, forceReturnValue, codec, listenerNotifier, configuration,
+            stats);
+   }
+
+   public ExecutorService getAsyncExecutorService() {
+      return asyncExecutorService;
    }
 
    private static class RemoteCacheKey {

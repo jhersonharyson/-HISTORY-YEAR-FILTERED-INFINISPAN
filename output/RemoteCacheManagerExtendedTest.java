@@ -1,11 +1,12 @@
 package org.infinispan.client.hotrod;
 
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.testng.AssertJUnit.assertTrue;
+import static org.testng.AssertJUnit.assertSame;
 
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
-import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
+import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.marshall.ProtoStreamMarshaller;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
@@ -30,8 +31,7 @@ public class RemoteCacheManagerExtendedTest extends SingleCacheManagerTest {
 
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
-      return TestCacheManagerFactory.createCacheManager(
-            hotRodCacheConfiguration());
+      return TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
    }
 
    @Override
@@ -51,7 +51,7 @@ public class RemoteCacheManagerExtendedTest extends SingleCacheManagerTest {
 
    public void testGetUndefinedCache() {
       ConfigurationBuilder clientBuilder =
-            new ConfigurationBuilder();
+            HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder.addServer().host("localhost").port(port);
       remoteCacheManager = new RemoteCacheManager(clientBuilder.build(), false);
       assert !remoteCacheManager.isStarted();
@@ -60,11 +60,12 @@ public class RemoteCacheManagerExtendedTest extends SingleCacheManagerTest {
    }
 
    public void testMarshallerInstance() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServer().host("127.0.0.1").port(port);
-      GenericJBossMarshaller marshaller = new GenericJBossMarshaller();
+      Marshaller marshaller = new ProtoStreamMarshaller();
       builder.marshaller(marshaller);
-      remoteCacheManager = new RemoteCacheManager(builder.build());
-      assertTrue(marshaller == remoteCacheManager.getMarshaller());
+      RemoteCacheManager newRemoteCacheManager = new RemoteCacheManager(builder.build());
+      assertSame(marshaller, newRemoteCacheManager.getMarshaller());
+      HotRodClientTestingUtil.killRemoteCacheManager(newRemoteCacheManager);
    }
 }

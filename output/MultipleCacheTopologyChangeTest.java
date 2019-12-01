@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
@@ -29,15 +30,16 @@ import org.testng.annotations.Test;
 public class MultipleCacheTopologyChangeTest extends MultipleCacheManagersTest {
 
    private final List<Node> nodes = new ArrayList<>();
+   private RemoteCacheManager client;
 
    public void testRoundRobinLoadBalancing() throws InterruptedException, IOException {
       String[] caches = new String[]{"cache1", "cache2"};
       Node nodeA = startNewNode(caches);
       Node nodeB = startNewNode(caches);
 
-      ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder.addServers(getServerList(nodeA, nodeB));
-      RemoteCacheManager client = new RemoteCacheManager(clientBuilder.build());
+      client = new RemoteCacheManager(clientBuilder.build());
       RemoteCache<Integer, String> cache1 = client.getCache("cache1");
       RemoteCache<Integer, String> cache2 = client.getCache("cache2");
 
@@ -117,6 +119,7 @@ public class MultipleCacheTopologyChangeTest extends MultipleCacheManagersTest {
    @AfterClass
    @Override
    protected void destroy() {
+      HotRodClientTestingUtil.killRemoteCacheManager(client);
       nodes.forEach(Node::kill);
    }
 }

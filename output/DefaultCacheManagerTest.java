@@ -8,9 +8,12 @@ import javax.inject.Inject;
 
 import org.infinispan.cdi.embedded.test.Deployments;
 import org.infinispan.client.hotrod.RemoteCacheManager;
+import org.infinispan.commons.test.ThreadLeakChecker;
+import org.infinispan.test.fwk.TestResourceTrackingListener;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.testng.Arquillian;
 import org.jboss.shrinkwrap.api.Archive;
+import org.testng.annotations.Listeners;
 import org.testng.annotations.Test;
 
 /**
@@ -18,6 +21,7 @@ import org.testng.annotations.Test;
  *
  * @author Kevin Pollet &lt;kevin.pollet@serli.com&gt; (C) 2011 SERLI
  */
+@Listeners(TestResourceTrackingListener.class)
 @Test(groups = "functional", testName = "cdi.test.cachemanager.remote.DefaultCacheManagerTest")
 public class DefaultCacheManagerTest extends Arquillian {
 
@@ -34,6 +38,9 @@ public class DefaultCacheManagerTest extends Arquillian {
    private RemoteCacheManager remoteCacheManager;
 
    public void testDefaultRemoteCacheManagerInjection() {
+      // RemoteCacheProducer leaks thread, see ISPN-9935
+      ThreadLeakChecker.ignoreThreadsContaining("HotRod-client-async-pool-");
+
       final Properties properties = remoteCacheManager.getConfiguration().properties();
 
       assertEquals(properties.getProperty(SERVER_LIST_KEY), DEFAULT_SERVER_LIST_VALUE);

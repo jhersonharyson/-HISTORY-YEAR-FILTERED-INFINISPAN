@@ -4,7 +4,9 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
-import org.infinispan.commons.util.CollectionFactory;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
 /**
  * Near cache based on {@link BoundedConcurrentMapNearCache}
@@ -13,15 +15,17 @@ import org.infinispan.commons.util.CollectionFactory;
  */
 final class BoundedConcurrentMapNearCache<K, V> implements NearCache<K, V> {
 
-   private final ConcurrentMap<K, MetadataValue<V>> cache;
+   private final ConcurrentMap<K, MetadataValue<V>> map;
+   private final Cache<K, MetadataValue<V>> cache;
 
-   private BoundedConcurrentMapNearCache(ConcurrentMap<K, MetadataValue<V>> cache) {
+   private BoundedConcurrentMapNearCache(Cache<K, MetadataValue<V>> cache) {
       this.cache = cache;
+      this.map = cache.asMap();
    }
 
    public static <K, V> NearCache<K, V> create(final NearCacheConfiguration config) {
-      return new BoundedConcurrentMapNearCache<K, V>(
-         CollectionFactory.<K, MetadataValue<V>>makeBoundedConcurrentMap(config.maxEntries()));
+      Cache<K, MetadataValue<V>> cache = Caffeine.newBuilder().maximumSize(config.maxEntries()).build();
+      return new BoundedConcurrentMapNearCache<>(cache);
    }
 
    @Override
@@ -31,26 +35,28 @@ final class BoundedConcurrentMapNearCache<K, V> implements NearCache<K, V> {
 
    @Override
    public void putIfAbsent(K key, MetadataValue<V> value) {
-      cache.putIfAbsent(key, value);
+      map.putIfAbsent(key, value);
    }
 
    @Override
    public boolean remove(K key) {
-      return cache.remove(key) != null;
+      return map.remove(key) != null;
    }
 
    @Override
    public MetadataValue<V> get(K key) {
-      return cache.get(key);
+      return map.get(key);
    }
 
    @Override
    public void clear() {
-      cache.clear();
+      map.clear();
    }
 
    @Override
    public int size() {
-      return cache.size();
+      // Make sure to clean up any evicted entries so the returned size is correct
+      cache.cleanUp();
+      return map.size();
    }
 }

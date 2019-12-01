@@ -20,6 +20,7 @@ import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.query.RemoteQuery;
 import org.infinispan.client.hotrod.impl.transaction.entry.Modification;
+import org.infinispan.client.hotrod.impl.transaction.operations.PrepareTransactionOperation;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 
 import io.netty.channel.Channel;
@@ -44,7 +45,7 @@ public class OperationsFactory implements HotRodConstants {
 
    private final boolean forceReturnValue;
 
-   private final Codec codec;
+   private Codec codec;
 
    private final ClientListenerNotifier listenerNotifier;
 
@@ -83,6 +84,10 @@ public class OperationsFactory implements HotRodConstants {
 
    public Codec getCodec() {
       return codec;
+   }
+
+   public void setCodec(Codec codec) {
+      this.codec = codec;
    }
 
    public <V> GetOperation<V> newGetKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
@@ -202,7 +207,7 @@ public class OperationsFactory implements HotRodConstants {
     * @param releaseChannel
     */
    public PingOperation newPingOperation(boolean releaseChannel) {
-      return new PingOperation(codec, topologyId, cfg, cacheNameBytes, channelFactory, releaseChannel);
+      return new PingOperation(codec, topologyId, cfg, cacheNameBytes, channelFactory, releaseChannel, this);
    }
 
    /**
@@ -214,7 +219,7 @@ public class OperationsFactory implements HotRodConstants {
     */
    public FaultTolerantPingOperation newFaultTolerantPingOperation() {
       return new FaultTolerantPingOperation(
-            codec, channelFactory, cacheNameBytes, topologyId, flags(), cfg);
+            codec, channelFactory, cacheNameBytes, topologyId, flags(), cfg, this);
    }
 
    public QueryOperation newQueryOperation(RemoteQuery remoteQuery, DataFormat dataFormat) {
@@ -321,17 +326,5 @@ public class OperationsFactory implements HotRodConstants {
                                                                      boolean recoverable, long timeoutMs) {
       return new PrepareTransactionOperation(codec, channelFactory, cacheNameBytes, topologyId, cfg, xid,
             onePhaseCommit, modifications, recoverable, timeoutMs);
-   }
-
-   public CompleteTransactionOperation newCompleteTransactionOperation(Xid xid, boolean commit) {
-      return new CompleteTransactionOperation(codec, channelFactory, cacheNameBytes, topologyId, cfg, xid, commit);
-   }
-
-   public ForgetTransactionOperation newForgetTransactionOperation(Xid xid) {
-      return new ForgetTransactionOperation(codec, channelFactory, cacheNameBytes, topologyId, cfg, xid);
-   }
-
-   public RecoveryOperation newRecoveryOperation() {
-      return new RecoveryOperation(codec, channelFactory, cacheNameBytes, topologyId, cfg);
    }
 }

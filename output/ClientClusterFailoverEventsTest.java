@@ -31,10 +31,9 @@ public class ClientClusterFailoverEventsTest extends MultiHotRodServersTest {
    }
 
    private void injectTimeServices() {
-      long now = System.currentTimeMillis();
-      ts0 = new ControlledTimeService(now);
+      ts0 = new ControlledTimeService();
       TestingUtil.replaceComponent(server(0).getCacheManager(), TimeService.class, ts0, true);
-      ts1 = new ControlledTimeService(now);
+      ts1 = new ControlledTimeService();
       TestingUtil.replaceComponent(server(1).getCacheManager(), TimeService.class, ts1, true);
    }
 
@@ -53,7 +52,7 @@ public class ClientClusterFailoverEventsTest extends MultiHotRodServersTest {
          final Integer key41 = HotRodClientTestingUtil.getIntKeyForServer(server(1));
 
          org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
-               new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+               HotRodClientTestingUtil.newRemoteConfigurationBuilder();
          HotRodServer server = server(0);
          clientBuilder.addServers(server.getHost() + ":" + server.getPort());
          clientBuilder.balancingStrategy(StickyServerLoadBalancingStrategy.class);

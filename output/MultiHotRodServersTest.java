@@ -6,6 +6,8 @@ import static org.infinispan.test.TestingUtil.blockUntilViewReceived;
 import static org.infinispan.test.TestingUtil.killCacheManagers;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.infinispan.client.hotrod.RemoteCacheManager;
@@ -14,6 +16,7 @@ import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.configuration.internal.PrivateGlobalConfigurationBuilder;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.infinispan.server.hotrod.test.HotRodTestingUtil;
@@ -51,16 +54,30 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
    }
 
    protected RemoteCacheManager createClient(int i) {
-      return new InternalRemoteCacheManager(createHotRodClientConfigurationBuilder(server(i).getPort()).build());
+      return new InternalRemoteCacheManager(createHotRodClientConfigurationBuilder(server(i)).build());
    }
 
-   protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(int serverPort) {
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+   protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(HotRodServer server) {
+      return createHotRodClientConfigurationBuilder(server.getHost(), server.getPort());
+   }
+
+   protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(String host, int serverPort) {
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder.addServer()
-            .host("localhost")
+            .host(host)
             .port(serverPort)
-            .maxRetries(maxRetries());
+            .maxRetries(maxRetries())
+            .addContextInitializers(contextInitializers().toArray(new SerializationContextInitializer[0]));
       return clientBuilder;
+   }
+
+   protected SerializationContextInitializer contextInitializer() {
+      return null;
+   }
+
+   protected List<SerializationContextInitializer> contextInitializers() {
+      SerializationContextInitializer sci = contextInitializer();
+      return sci == null ? Collections.emptyList() : Arrays.asList(sci);
    }
 
    protected int maxRetries() {
@@ -151,6 +168,8 @@ public abstract class MultiHotRodServersTest extends MultipleCacheManagersTest {
    }
 
    protected void modifyGlobalConfiguration(GlobalConfigurationBuilder builder) {
-
+      List<SerializationContextInitializer> scis = contextInitializers();
+      if (scis != null)
+         builder.serialization().addContextInitializers(scis);
    }
 }

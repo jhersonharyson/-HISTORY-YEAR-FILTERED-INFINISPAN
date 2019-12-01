@@ -74,7 +74,7 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
    }
 
    protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(int serverPort) {
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder.addServer()
          .host("localhost")
          .port(serverPort);
@@ -164,14 +164,18 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
    }
 
    protected void addInterceptors() {
-      addInterceptors(null);
+      addInterceptors((String)null);
    }
 
    protected void addInterceptors(String cacheName) {
       for (EmbeddedCacheManager manager : cacheManagers) {
          Cache<?, ?> cache = namedCache(cacheName, manager);
-         addHitCountInterceptor(cache);
+         addInterceptors(cache);
       }
+   }
+
+   protected void addInterceptors(Cache<?, ?> cache) {
+      addHitCountInterceptor(cache);
    }
 
    private void addHitCountInterceptor(Cache<?, ?> cache) {

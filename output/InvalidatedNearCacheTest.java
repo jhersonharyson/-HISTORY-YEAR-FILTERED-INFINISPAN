@@ -1,6 +1,7 @@
 package org.infinispan.client.hotrod.near;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withRemoteCacheManager;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertTrue;
@@ -13,15 +14,47 @@ import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.configuration.NearCacheMode;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.RemoteCacheManagerCallable;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.commons.CacheConfigurationException;
+import org.infinispan.configuration.cache.StorageType;
+import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.test.fwk.TestCacheManagerFactory;
+import org.testng.annotations.Factory;
 import org.testng.annotations.Test;
 
 @Test(groups = {"functional", "smoke"}, testName = "client.hotrod.near.InvalidatedNearCacheTest")
 public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
 
-   AssertsNearCache<Integer, String> assertClient;
+   private StorageType storageType;
+   private AssertsNearCache<Integer, String> assertClient;
+
+   private InvalidatedNearCacheTest storageType(StorageType storageType) {
+      this.storageType = storageType;
+      return this;
+   }
+
+   @Factory
+   public Object[] factory() {
+      return new Object[]{
+            new InvalidatedNearCacheTest().storageType(StorageType.OBJECT),
+            new InvalidatedNearCacheTest().storageType(StorageType.BINARY),
+            new InvalidatedNearCacheTest().storageType(StorageType.OFF_HEAP),
+      };
+   }
+
+   @Override
+   protected String parameters() {
+      return "storageType-" + storageType;
+   }
+
+   @Override
+   protected EmbeddedCacheManager createCacheManager() throws Exception {
+      org.infinispan.configuration.cache.ConfigurationBuilder cb = hotRodCacheConfiguration();
+      cb.memory().storageType(storageType);
+      return TestCacheManagerFactory.createCacheManager(cb);
+   }
 
    @Override
    protected RemoteCacheManager getRemoteCacheManager() {
@@ -29,44 +62,46 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
       return assertClient.manager;
    }
 
-   protected <K, V> AssertsNearCache<K, V> createAssertClient() {
+   private <K, V> AssertsNearCache<K, V> createAssertClient() {
       ConfigurationBuilder builder = clientConfiguration();
       return AssertsNearCache.create(this.cache(), builder);
    }
 
-   protected <K, V> RemoteCache<K, V> createClient() {
-      ConfigurationBuilder builder = clientConfiguration();
-      return new RemoteCacheManager(builder.build()).getCache();
-   }
-
    private ConfigurationBuilder clientConfiguration() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
       builder.nearCache().mode(getNearCacheMode()).maxEntries(-1);
       return builder;
    }
 
-   protected NearCacheMode getNearCacheMode() {
+   private NearCacheMode getNearCacheMode() {
       return NearCacheMode.INVALIDATED;
    }
 
    public void testGetNearCacheAfterConnect() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
-      RemoteCacheManager manager = new RemoteCacheManager(builder.build());
-      RemoteCache cache = manager.getCache();
-      cache.put(1, "one");
-      cache.put(2, "two");
-
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder(hotrodServer);
       builder.nearCache().mode(getNearCacheMode()).maxEntries(-1);
-      assertClient = AssertsNearCache.create(this.<byte[], Object>cache(), builder);
+      RemoteCacheManager manager = new RemoteCacheManager(builder.build());
+      try {
+         RemoteCache<Integer, String> cache = manager.getCache();
+         cache.put(1, "one");
+         cache.put(2, "two");
+      } finally {
+         HotRodClientTestingUtil.killRemoteCacheManager(manager);
+      }
 
-      assertEquals(2, assertClient.remote.size());
-      assertClient.expectNoNearEvents();
-      assertClient.get(1, "one").expectNearGetValue(1, null).expectNearPutIfAbsent(1, "one");
-      assertClient.get(2, "two").expectNearGetValue(2, null).expectNearPutIfAbsent(2, "two");
-      assertClient.remove(1).expectNearRemove(1);
-      assertClient.remove(2).expectNearRemove(2);
+      AssertsNearCache<Integer, String> newAssertClient = AssertsNearCache.create(cache(), builder);
+      try {
+         assertEquals(2, newAssertClient.remote.size());
+         newAssertClient.expectNoNearEvents();
+         newAssertClient.get(1, "one").expectNearGetValue(1, null).expectNearPutIfAbsent(1, "one");
+         newAssertClient.get(2, "two").expectNearGetValue(2, null).expectNearPutIfAbsent(2, "two");
+         newAssertClient.remove(1).expectNearRemove(1);
+         newAssertClient.remove(2).expectNearRemove(2);
+      } finally {
+         newAssertClient.stop();
+      }
+      assertClient.resetEvents();
    }
 
    public void testGetNearCache() {
@@ -176,8 +211,7 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
    @Test(expectedExceptions = CacheConfigurationException.class,
          expectedExceptionsMessageRegExp = ".*When enabling near caching, number of max entries must be configured.*")
    public void testConfigurationWithoutMaxEntries() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder(hotrodServer);
       builder.nearCache().mode(getNearCacheMode());
       new RemoteCacheManager(builder.build());
    }
@@ -187,10 +221,14 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
       ConfigurationBuilder builder = clientConfiguration();
       builder.nearCache().cacheNamePattern("near.*");
       RemoteCacheManager manager = new RemoteCacheManager(builder.build());
-      RemoteCache nearcache = manager.getCache("nearcache");
-      assertTrue(nearcache instanceof InvalidatedNearRemoteCache);
-      RemoteCache cache = manager.getCache();
-      assertFalse(cache instanceof InvalidatedNearRemoteCache);
+      try {
+         RemoteCache nearcache = manager.getCache("nearcache");
+         assertTrue(nearcache instanceof InvalidatedNearRemoteCache);
+         RemoteCache cache = manager.getCache();
+         assertFalse(cache instanceof InvalidatedNearRemoteCache);
+      } finally {
+         HotRodClientTestingUtil.killRemoteCacheManager(manager);
+      }
    }
 
 }

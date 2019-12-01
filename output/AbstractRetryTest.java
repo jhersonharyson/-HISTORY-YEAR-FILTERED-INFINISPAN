@@ -63,7 +63,7 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
 
       remoteCacheManager = createRemoteCacheManager(hotRodServer1.getPort());
       remoteCache = (RemoteCacheImpl) remoteCacheManager.getCache();
-      channelFactory = ((InternalRemoteCacheManager) remoteCacheManager).getChannelFactory();
+      channelFactory = remoteCacheManager.getChannelFactory();
       strategy = getLoadBalancer(remoteCacheManager);
       addInterceptors();
 
@@ -72,7 +72,7 @@ public abstract class AbstractRetryTest extends HitsAwareCacheManagersTest {
 
    protected RemoteCacheManager createRemoteCacheManager(int port) {
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder builder =
-         new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+         HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder
          .forceReturnValues(true)
          .connectionTimeout(5)

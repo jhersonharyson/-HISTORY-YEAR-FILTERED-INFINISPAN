@@ -9,12 +9,12 @@ import java.util.List;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.Search;
-import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
+import org.infinispan.client.hotrod.marshall.MarshallerUtil;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.SerializationContext;
-import org.infinispan.protostream.annotations.ProtoDoc;
 import org.infinispan.protostream.annotations.ProtoField;
 import org.infinispan.protostream.annotations.ProtoSchemaBuilder;
 import org.infinispan.query.dsl.Query;
@@ -26,7 +26,7 @@ import org.testng.annotations.Test;
 
 /**
  * Tests for remote queries over HotRod using protostream annotations on a local cache using indexing in RAM. Indexing
- * is disabled for the searched entity. Non-indexed querying should still work.
+ * is not enabled for the searched entity. Non-indexed querying should still work.
  *
  * @author anistor@redhat.com
  * @since 9.4
@@ -34,7 +34,6 @@ import org.testng.annotations.Test;
 @Test(groups = "functional", testName = "client.hotrod.query.RemoteQueryProtostreamAnnotationsDisableIndexingTest")
 public class RemoteQueryProtostreamAnnotationsDisableIndexingTest extends SingleHotRodServerTest {
 
-   @ProtoDoc("@Indexed(false)")
    public static class Memo {
 
       @ProtoField(number = 10, required = true)
@@ -94,16 +93,15 @@ public class RemoteQueryProtostreamAnnotationsDisableIndexingTest extends Single
 
    @Override
    protected RemoteCacheManager getRemoteCacheManager() {
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
-      clientBuilder.marshaller(new ProtoStreamMarshaller());
       return new RemoteCacheManager(clientBuilder.build());
    }
 
    @BeforeClass
    protected void registerProtobufSchema() throws Exception {
       //initialize client-side serialization context
-      SerializationContext serializationContext = ProtoStreamMarshaller.getSerializationContext(remoteCacheManager);
+      SerializationContext serializationContext = MarshallerUtil.getSerializationContext(remoteCacheManager);
       ProtoSchemaBuilder protoSchemaBuilder = new ProtoSchemaBuilder();
       String protoSchemaFile = protoSchemaBuilder.fileName("memo.proto")
             .addClass(Memo.class)

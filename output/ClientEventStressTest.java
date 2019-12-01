@@ -27,6 +27,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
+import org.infinispan.test.fwk.TestResourceTracker;
 import org.testng.annotations.Test;
 
 @Test(groups = "stress", testName = "client.hotrod.event.ClientEventStressTest", timeOut = 15*60*1000)
@@ -55,12 +56,13 @@ public class ClientEventStressTest extends SingleCacheManagerTest {
    }
 
    RemoteCacheManager getRemoteCacheManager(int port) {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServer().host("127.0.0.1").port(port);
       return new InternalRemoteCacheManager(builder.build());
    }
 
    public void testStressEvents() {
+      TestResourceTracker.testThreadStarted(this);
       CyclicBarrier barrier = new CyclicBarrier((NUM_CLIENTS * NUM_THREADS_PER_CLIENT) + 1);
       List<Future<Void>> futures = new ArrayList<>(NUM_CLIENTS * NUM_THREADS_PER_CLIENT);
       List<ClientEntryListener> listeners = new ArrayList<>(NUM_CLIENTS);

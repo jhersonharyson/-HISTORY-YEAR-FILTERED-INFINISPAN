@@ -1,5 +1,7 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
+import static org.infinispan.client.hotrod.logging.Log.HOTROD;
+
 import java.net.SocketAddress;
 import java.util.function.Function;
 
@@ -10,14 +12,11 @@ import org.infinispan.client.hotrod.event.impl.AbstractClientEvent;
 import org.infinispan.client.hotrod.event.impl.ExpiredEventImpl;
 import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
 import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.configuration.ClassWhiteList;
 
 import io.netty.buffer.ByteBuf;
 
 public class Codec21 extends Codec20 {
-
-   private static final Log log = LogFactory.getLog(Codec21.class, Log.class);
 
    @Override
    public Log getLog() {
@@ -56,7 +55,7 @@ public class Codec21 extends Codec20 {
          case ERROR_RESPONSE:
             checkForErrorsInResponseStatus(buf, null, status, serverAddress);
          default:
-            throw log.unknownEvent(eventTypeId);
+            throw HOTROD.unknownEvent(eventTypeId);
       }
 
       byte[] listenerId = ByteBufUtil.readArray(buf);
@@ -86,7 +85,7 @@ public class Codec21 extends Codec20 {
                Object expiredKey = dataFormat.keyToObj(ByteBufUtil.readArray(buf), whitelist);
                return createExpiredEvent(listenerId, expiredKey);
             default:
-               throw getLog().unknownEvent(eventTypeId);
+               throw HOTROD.unknownEvent(eventTypeId);
          }
       }
    }

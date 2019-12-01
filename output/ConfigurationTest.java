@@ -13,6 +13,10 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTI
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MIN_IDLE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECT_TIMEOUT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.HASH_FUNCTION_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JAVA_SERIAL_WHITELIST;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JMX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JMX_DOMAIN;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JMX_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_SIZE_ESTIMATE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_CERTIFICATE_PASSWORD;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_FILE_NAME;
@@ -25,12 +29,12 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.PROTOCOL
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.REQUEST_BALANCING_STRATEGY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_MECHANISM;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_PROPERTIES_PREFIX;
-import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JAVA_SERIAL_WHITELIST;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SERVER_LIST;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SNI_HOST_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SO_TIMEOUT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SSL_CONTEXT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SSL_PROTOCOL;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.STATISTICS;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TCP_KEEP_ALIVE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TCP_NO_DELAY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRUST_STORE_FILE_NAME;
@@ -65,14 +69,16 @@ import org.infinispan.client.hotrod.SomeAsyncExecutorFactory;
 import org.infinispan.client.hotrod.SomeCustomConsistentHashV2;
 import org.infinispan.client.hotrod.SomeRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
-import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
 import org.infinispan.client.hotrod.security.BasicCallbackHandler;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commons.CacheConfigurationException;
+import org.infinispan.commons.marshall.ProtoStreamMarshaller;
 import org.infinispan.commons.util.FileLookupFactory;
+import org.infinispan.test.AbstractInfinispanTest;
 import org.testng.annotations.Test;
 
 @Test(testName = "client.hotrod.configuration.ConfigurationTest", groups = "functional")
-public class ConfigurationTest {
+public class ConfigurationTest extends AbstractInfinispanTest {
 
    static final Map<String, Function<Configuration, ?>> OPTIONS = new HashMap<>();
    static final Map<Class<?>, Function<Object, Object>> TYPES = new HashMap<>();
@@ -82,22 +88,15 @@ public class ConfigurationTest {
       OPTIONS.put(REQUEST_BALANCING_STRATEGY, c -> c.balancingStrategyFactory().get().getClass());
       OPTIONS.put("maxActive", c -> c.connectionPool().maxActive());
       OPTIONS.put(CONNECTION_POOL_MAX_ACTIVE, c -> c.connectionPool().maxActive());
-      OPTIONS.put("maxTotal", c -> c.connectionPool().maxTotal());
       OPTIONS.put("maxWait", c -> c.connectionPool().maxWait());
       OPTIONS.put(CONNECTION_POOL_MAX_WAIT, c -> c.connectionPool().maxWait());
-      OPTIONS.put("maxIdle", c -> c.connectionPool().maxIdle());
       OPTIONS.put("minIdle", c -> c.connectionPool().minIdle());
       OPTIONS.put(CONNECTION_POOL_MIN_IDLE, c -> c.connectionPool().minIdle());
       OPTIONS.put("exhaustedAction", c -> c.connectionPool().exhaustedAction());
       OPTIONS.put(CONNECTION_POOL_EXHAUSTED_ACTION, c -> c.connectionPool().exhaustedAction());
-      OPTIONS.put("numTestsPerEvictionRun", c -> c.connectionPool().numTestsPerEvictionRun());
-      OPTIONS.put("timeBetweenEvictionRunsMillis", c -> c.connectionPool().timeBetweenEvictionRuns());
       OPTIONS.put("minEvictableIdleTimeMillis", c -> c.connectionPool().minEvictableIdleTime());
       OPTIONS.put(CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, c -> c.connectionPool().minEvictableIdleTime());
       OPTIONS.put(CONNECTION_POOL_MAX_PENDING_REQUESTS, c -> c.connectionPool().maxPendingRequests());
-      OPTIONS.put("testOnBorrow", c -> c.connectionPool().testOnBorrow());
-      OPTIONS.put("testOnReturn", c -> c.connectionPool().testOnReturn());
-      OPTIONS.put("testWhileIdle", c -> c.connectionPool().testWhileIdle());
       OPTIONS.put(CONNECT_TIMEOUT, Configuration::connectionTimeout);
       OPTIONS.put(PROTOCOL_VERSION, Configuration::version);
       OPTIONS.put(SO_TIMEOUT, Configuration::socketTimeout);
@@ -167,8 +166,9 @@ public class ConfigurationTest {
       saslProperties.put("B", "2");
       saslProperties.put("C", "3");
 
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder
+            .statistics().enable().jmxEnable().jmxDomain("jmxInfinispanDomain").jmxName("jmxInfinispan")
             .addServer()
             .host("host1")
             .port(11222)
@@ -185,15 +185,8 @@ public class ConfigurationTest {
             .minEvictableIdleTime(12000)
             .exhaustedAction(ExhaustedAction.WAIT)
             .maxPendingRequests(12)
-            .maxIdle(20)
-            .maxTotal(150)
-            .numTestsPerEvictionRun(5)
-            .testOnBorrow(true)
-            .testOnReturn(true)
-            .testWhileIdle(false)
-            .timeBetweenEvictionRuns(15000)
             .connectionTimeout(100)
-            .version(ProtocolVersion.PROTOCOL_VERSION_13)
+            .version(ProtocolVersion.PROTOCOL_VERSION_29)
             .consistentHashImpl(2, SomeCustomConsistentHashV2.class)
             .socketTimeout(100)
             .tcpNoDelay(false)
@@ -232,14 +225,14 @@ public class ConfigurationTest {
       Configuration configuration = builder.build();
       validateConfiguration(configuration);
 
-      ConfigurationBuilder newBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder newBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       newBuilder.read(configuration);
       Configuration newConfiguration = newBuilder.build();
       validateConfiguration(newConfiguration);
    }
 
    public void testWithProperties() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       Properties p = new Properties();
       p.setProperty(SERVER_LIST, "host1:11222; host2:11222");
       p.setProperty(ASYNC_EXECUTOR_FACTORY, "org.infinispan.client.hotrod.SomeAsyncExecutorFactory");
@@ -259,7 +252,7 @@ public class ConfigurationTest {
       p.setProperty("testOnReturn", "true");
       p.setProperty("testWhileIdle", "false");
       p.setProperty(CONNECT_TIMEOUT, "100");
-      p.setProperty(PROTOCOL_VERSION, "1.3");
+      p.setProperty(PROTOCOL_VERSION, "2.9");
       p.setProperty(SO_TIMEOUT, "100");
       p.setProperty(TCP_NO_DELAY, "false");
       p.setProperty(TCP_KEEP_ALIVE, "true");
@@ -287,18 +280,22 @@ public class ConfigurationTest {
       p.setProperty(NEAR_CACHE_NAME_PATTERN, "near.*");
       p.setProperty(CLUSTER_PROPERTIES_PREFIX + ".siteA", "hostA1:11222; hostA2:11223");
       p.setProperty(CLUSTER_PROPERTIES_PREFIX + ".siteB", "hostB1:11222; hostB2:11223");
+      p.setProperty(STATISTICS, "true");
+      p.setProperty(JMX, "true");
+      p.setProperty(JMX_NAME, "jmxInfinispan");
+      p.setProperty(JMX_DOMAIN, "jmxInfinispanDomain");
 
       Configuration configuration = builder.withProperties(p).build();
       validateConfiguration(configuration);
 
-      ConfigurationBuilder newBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder newBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       newBuilder.read(configuration);
       Configuration newConfiguration = newBuilder.build();
       validateConfiguration(newConfiguration);
    }
 
    public void testSSLContext() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.security()
             .ssl()
             .enable()
@@ -307,14 +304,14 @@ public class ConfigurationTest {
       Configuration configuration = builder.build();
       validateSSLContextConfiguration(configuration);
 
-      ConfigurationBuilder newBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder newBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       newBuilder.read(configuration);
       Configuration newConfiguration = newBuilder.build();
       validateSSLContextConfiguration(newConfiguration);
    }
 
    public void testSni() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.security()
             .ssl()
             .enable()
@@ -324,27 +321,27 @@ public class ConfigurationTest {
       Configuration configuration = builder.build();
       validateSniContextConfiguration(configuration);
 
-      ConfigurationBuilder newBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder newBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       newBuilder.read(configuration);
       Configuration newConfiguration = newBuilder.build();
       validateSniContextConfiguration(newConfiguration);
    }
 
    public void testWithPropertiesSSLContext() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       Properties p = new Properties();
       p.put(SSL_CONTEXT, getSSLContext());
       Configuration configuration = builder.withProperties(p).build();
       validateSSLContextConfiguration(configuration);
 
-      ConfigurationBuilder newBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder newBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       newBuilder.read(configuration);
       Configuration newConfiguration = newBuilder.build();
       validateSSLContextConfiguration(newConfiguration);
    }
 
    public void testWithPropertiesSni() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       Properties p = new Properties();
       p.put(TRUST_STORE_FILE_NAME, "my-trust-store.file");
       p.put(TRUST_STORE_PASSWORD, "my-trust-store.password");
@@ -352,14 +349,14 @@ public class ConfigurationTest {
       Configuration configuration = builder.withProperties(p).build();
       validateSniContextConfiguration(configuration);
 
-      ConfigurationBuilder newBuilder = new ConfigurationBuilder();
+      ConfigurationBuilder newBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       newBuilder.read(configuration);
       Configuration newConfiguration = newBuilder.build();
       validateSniContextConfiguration(newConfiguration);
    }
 
    public void testWithPropertiesAuthCallbackHandlerFQN() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       Properties p = new Properties();
       p.setProperty(AUTH_CALLBACK_HANDLER, MyCallbackHandler.class.getName());
       Configuration configuration = builder.withProperties(p).build();
@@ -367,7 +364,7 @@ public class ConfigurationTest {
    }
 
    public void testParseServerAddresses() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServers("1.1.1.1:9999");
       builder.addServers("2.2.2.2");
       builder.addServers("[fe80::290:bff:fe1b:5762]:7777");
@@ -385,7 +382,7 @@ public class ConfigurationTest {
 
    public void testPropertyReplacement() throws IOException, UnsupportedCallbackException {
       System.setProperty("test.property.server_list", "myhost:12345");
-      System.setProperty("test.property.marshaller", "org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller");
+      System.setProperty("test.property.marshaller", "org.infinispan.commons.marshall.ProtoStreamMarshaller");
       System.setProperty("test.property.tcp_no_delay", "false");
       System.setProperty("test.property.tcp_keep_alive", "true");
       System.setProperty("test.property.key_size_estimate", "128");
@@ -404,7 +401,7 @@ public class ConfigurationTest {
       System.setProperty("test.property.sasl_mechanism", "PLAIN");
 
 
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       Properties p = new Properties();
       InputStream inputStream = FileLookupFactory.newInstance().lookupFile("hotrod-client-replacement.properties", this.getClass().getClassLoader());
       p.load(inputStream);
@@ -416,13 +413,9 @@ public class ConfigurationTest {
       assertTrue(cfg.tcpKeepAlive());
       assertEquals(128, cfg.keySizeEstimate());
       assertEquals(256, cfg.valueSizeEstimate());
-      assertEquals(79, cfg.connectionPool().maxTotal());
       assertEquals(78, cfg.connectionPool().maxActive());
-      assertEquals(77, cfg.connectionPool().maxIdle());
       assertEquals(76, cfg.connectionPool().minIdle());
-      assertEquals(1000, cfg.connectionPool().timeBetweenEvictionRuns());
       assertEquals(2000, cfg.connectionPool().minEvictableIdleTime());
-      assertTrue(cfg.connectionPool().testWhileIdle());
       assertTrue(cfg.security().authentication().enabled());
       assertEquals("PLAIN", cfg.security().authentication().saslMechanism());
       CallbackHandler callbackHandler = cfg.security().authentication().callbackHandler();
@@ -436,35 +429,35 @@ public class ConfigurationTest {
          expectedExceptionsMessageRegExp = "ISPN(\\d)*: Invalid max_retries \\(value=-1\\). " +
                "Value should be greater or equal than zero.")
    public void testNegativeRetriesPerServer() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.maxRetries(-1);
       builder.build();
    }
 
    @Test(expectedExceptions = CacheConfigurationException.class)
    public void testMissingClusterNameDefinition() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addCluster(null);
       builder.build();
    }
 
    @Test(expectedExceptions = CacheConfigurationException.class)
    public void testMissingHostDefinition() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addCluster("test").addClusterNode(null, 1234);
       builder.build();
    }
 
    @Test(expectedExceptions = CacheConfigurationException.class)
    public void testMissingClusterServersDefinition() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addCluster("test");
       builder.build();
    }
 
    @Test(expectedExceptions = CacheConfigurationException.class)
    public void testDuplicateClusterDefinition() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addCluster("test").addClusterNode("host1", 1234);
       builder.addCluster("test").addClusterNode("host1", 5678);
       builder.build();
@@ -472,26 +465,26 @@ public class ConfigurationTest {
 
    @Test(expectedExceptions = CacheConfigurationException.class)
    public void testInvalidAuthenticationConfig() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.security().authentication().enable().saslMechanism("PLAIN");
       builder.build();
    }
 
    public void testValidAuthenticationSubjectNoCBH() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.security().authentication().enable().saslMechanism("PLAIN").clientSubject(new Subject());
       builder.build();
    }
 
    public void testValidAuthenticationCBHNoSubject() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.security().authentication().enable().saslMechanism("PLAIN").callbackHandler(callbacks -> {
       });
       builder.build();
    }
 
    public void testClusters() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
       builder.addServers("1.1.1.1:9999");
       builder.addCluster("my-cluster").addClusterNode("localhost", 8382);
       Configuration cfg = builder.build();
@@ -519,21 +512,14 @@ public class ConfigurationTest {
       assertEquals(SomeCustomConsistentHashV2.class, configuration.consistentHashImpl(2));
       assertEqualsConfig(100, "maxActive", configuration);
       assertEqualsConfig(100, CONNECTION_POOL_MAX_ACTIVE, configuration);
-      assertEqualsConfig(150, "maxTotal", configuration);
       assertEqualsConfig(1000L, "maxWait", configuration);
       assertEqualsConfig(1000L, CONNECTION_POOL_MAX_WAIT, configuration);
-      assertEqualsConfig(20, "maxIdle", configuration);
       assertEqualsConfig(10, "minIdle", configuration);
       assertEqualsConfig(10, CONNECTION_POOL_MIN_IDLE, configuration);
       assertEqualsConfig(ExhaustedAction.WAIT, CONNECTION_POOL_EXHAUSTED_ACTION, configuration);
-      assertEqualsConfig(5, "numTestsPerEvictionRun", configuration);
-      assertEqualsConfig(15000L, "timeBetweenEvictionRunsMillis", configuration);
       assertEqualsConfig(12000L, "minEvictableIdleTimeMillis", configuration);
       assertEqualsConfig(12000L, CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, configuration);
       assertEqualsConfig(12, CONNECTION_POOL_MAX_PENDING_REQUESTS, configuration);
-      assertEqualsConfig(true, "testOnBorrow", configuration);
-      assertEqualsConfig(true, "testOnReturn", configuration);
-      assertEqualsConfig(false, "testWhileIdle", configuration);
       assertEqualsConfig(100, CONNECT_TIMEOUT, configuration);
       assertEqualsConfig(100, SO_TIMEOUT, configuration);
       assertEqualsConfig(false, TCP_NO_DELAY, configuration);
@@ -556,7 +542,7 @@ public class ConfigurationTest {
       assertEqualsConfig("1", SASL_PROPERTIES_PREFIX + ".A", configuration);
       assertEqualsConfig("2", SASL_PROPERTIES_PREFIX + ".B", configuration);
       assertEqualsConfig("3", SASL_PROPERTIES_PREFIX + ".C", configuration);
-      assertEqualsConfig(ProtocolVersion.PROTOCOL_VERSION_13, PROTOCOL_VERSION, configuration);
+      assertEqualsConfig(ProtocolVersion.PROTOCOL_VERSION_29, PROTOCOL_VERSION, configuration);
       assertEqualsConfig(Arrays.asList(".*Person.*", ".*Employee.*"), JAVA_SERIAL_WHITELIST, configuration);
       assertEqualsConfig(NearCacheMode.INVALIDATED, NEAR_CACHE_MODE, configuration);
       assertEqualsConfig(10_000, NEAR_CACHE_MAX_ENTRIES, configuration);
@@ -572,6 +558,10 @@ public class ConfigurationTest {
       assertEquals(11222, configuration.clusters().get(1).getCluster().get(0).port());
       assertEquals("hostB2", configuration.clusters().get(1).getCluster().get(1).host());
       assertEquals(11223, configuration.clusters().get(1).getCluster().get(1).port());
+      assertTrue(configuration.statistics().enabled());
+      assertTrue(configuration.statistics().jmxEnabled());
+      assertEquals("jmxInfinispan", configuration.statistics().jmxName());
+      assertEquals("jmxInfinispanDomain", configuration.statistics().jmxDomain());
    }
 
    private void validateSSLContextConfiguration(Configuration configuration) {
