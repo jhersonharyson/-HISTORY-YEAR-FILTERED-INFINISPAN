@@ -171,10 +171,7 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
    }
 
    private long serverDataVersion(RemoteCache<K, ?> cache, K key) {
-      long v1 = cache.getVersioned(key).getVersion();
-      long v2 = cache.getWithMetadata(key).getVersion();
-      assertEquals(v1, v2);
-      return v1;
+      return cache.getWithMetadata(key).getVersion();
    }
 
    public void expectUnorderedEvents(ClientEvent.Type type, K... keys) {
@@ -252,7 +249,7 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
       }
 
       @Override
-      public CacheEventFilter<K, String> getFilter(final Object[] params) {
+      public CacheEventFilter<K, String> getFilter(Object[] params) {
          return new StaticCacheEventFilter<>(staticKey);
       }
 
@@ -268,7 +265,7 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
             this.staticKey = (K) staticKey.getValue();
          }
 
-         @ProtoField(number = 1)
+         @ProtoField(1)
          public WrappedMessage getStaticKey() {
             return new WrappedMessage(staticKey);
          }
@@ -284,7 +281,7 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
    @NamedFactory(name = "dynamic-filter-factory")
    public static class DynamicCacheEventFilterFactory implements CacheEventFilterFactory {
       @Override
-      public CacheEventFilter<Integer, String> getFilter(final Object[] params) {
+      public CacheEventFilter<Integer, String> getFilter(Object[] params) {
          return new DynamicCacheEventFilter(params);
       }
 
@@ -316,7 +313,7 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
    @NamedFactory(name = "raw-static-filter-factory")
    public static class RawStaticCacheEventFilterFactory implements CacheEventFilterFactory {
       @Override
-      public CacheEventFilter<byte[], byte[]> getFilter(final Object[] params) {
+      public CacheEventFilter<byte[], byte[]> getFilter(Object[] params) {
          try {
             // Static key is 2 marshalled
             byte[] staticKey = ProtobufUtil.toWrappedByteArray(ProtobufUtil.newSerializationContext(), 2);
@@ -329,7 +326,7 @@ public class EventLogListener<K> implements RemoteCacheSupplier<K> {
       @ProtoName("RawStaticCacheEventFilter")
       static class RawStaticCacheEventFilter implements CacheEventFilter<byte[], byte[]>, Serializable {
 
-         @ProtoField(number = 1)
+         @ProtoField(1)
          final byte[] staticKey;
 
          @ProtoFactory

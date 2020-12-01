@@ -15,6 +15,7 @@ import java.util.Set;
 
 import javax.transaction.xa.Xid;
 
+import org.infinispan.client.hotrod.configuration.ExhaustedAction;
 import org.infinispan.client.hotrod.event.IncorrectClientListenerException;
 import org.infinispan.client.hotrod.exceptions.CacheNotTransactionalException;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
@@ -128,8 +129,8 @@ public interface Log extends BasicLogger {
    @Message(value = "Invalid max_retries (value=%s). Value should be greater or equal than zero.", id = 4029)
    CacheConfigurationException invalidMaxRetries(int retriesPerServer);
 
-   @Message(value = "Cannot enable authentication without specifying a Callback Handler or a client Subject", id = 4030)
-   CacheConfigurationException invalidCallbackHandler();
+   @Message(value = "Cannot enable authentication without specifying either a username, a token, a client Subject or a CallbackHandler", id = 4030)
+   CacheConfigurationException invalidAuthenticationConfiguration();
 
    @Message(value = "The selected authentication mechanism '%s' is not among the supported server mechanisms: %s", id = 4031)
    SecurityException unsupportedMech(String authMech, List<String> serverMechs);
@@ -227,7 +228,7 @@ public interface Log extends BasicLogger {
 
    @LogMessage(level = WARN)
    @Message(value = "Ignoring error when closing iteration '%s'", id = 4061)
-   void ignoringErrorDuringIterationClose(String iterationId, @Cause Exception e);
+   void ignoringErrorDuringIterationClose(String iterationId, @Cause Throwable e);
 
    @LogMessage(level = DEBUG)
    @Message(value = "Started iteration '%s'", id = 4062)
@@ -332,4 +333,38 @@ public interface Log extends BasicLogger {
 
    @Message(value = "OAUTHBEARER mechanism selected without providing a token", id = 4093)
    CacheConfigurationException oauthBearerWithoutToken();
+
+   @Message(value = "Cannot specify both template name and configuration for '%s'", id = 4094)
+   CacheConfigurationException remoteCacheTemplateNameXorConfiguration(String name);
+
+   @Message(value = "Not a Hot Rod URI: %s", id = 4095)
+   IllegalArgumentException notaHotRodURI(String uri);
+
+   @Message(value = "Invalid property format in URI: %s", id = 4096)
+   IllegalArgumentException invalidPropertyFormat(String part);
+
+   @Message(value = "Illegal attempt to redefine an already existing cache configuration: %s", id = 4097)
+   IllegalArgumentException duplicateCacheConfiguration(String name);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Closing connection %s due to transport error", id = 4098)
+   void closingChannelAfterError(Channel channel, @Cause Throwable t);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Remote iteration over the entire result set of query '%s' without using pagination options is inefficient for large result sets. Please consider using 'startOffset' and 'maxResults' options.", id = 4099)
+   void warnPerfRemoteIterationWithoutPagination(String query);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Error reaching the server during iteration", id = 4100)
+   void throwableDuringPublisher(@Cause Throwable t);
+
+   @LogMessage(level = WARN)
+   @Message(value = "Configuration property '%s' has been deprecated", id = 4101)
+   void deprecatedConfigurationProperty(String property);
+
+   @Message(value = "Near cache number of max entries must be a positive number when using bloom filter optimization, it was %d", id = 4102)
+   CacheConfigurationException nearCacheMaxEntriesPositiveWithBloom(int maxEntries);
+
+   @Message(value = "Near cache with bloom filter requires pool max active to be 1, was %s, and exhausted action to be WAIT, was %s", id = 4103)
+   CacheConfigurationException bloomFilterRequiresMaxActiveOneAndWait(int maxActive, ExhaustedAction action);
 }

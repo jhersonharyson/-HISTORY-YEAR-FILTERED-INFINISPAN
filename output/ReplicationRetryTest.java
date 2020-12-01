@@ -56,10 +56,10 @@ public class ReplicationRetryTest extends AbstractRetryTest {
       assertEquals(true, remoteCache.containsKey("k"));
    }
 
-   public void testGetWithVersion() {
+   public void testGetWithMetadata() {
       validateSequenceAndStopServer();
       resetStats();
-      VersionedValue value = remoteCache.getVersioned("k");
+      VersionedValue value = remoteCache.getWithMetadata("k");
       assertEquals("v", value.getValue());
    }
 

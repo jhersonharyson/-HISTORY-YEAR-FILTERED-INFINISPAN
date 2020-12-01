@@ -28,7 +28,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.infinispan.test.TestingUtil;
-import org.infinispan.test.fwk.TestResourceTracker;
+import org.infinispan.commons.test.TestResourceTracker;
 import org.infinispan.xsite.AbstractXSiteTest;
 import org.testng.annotations.AfterClass;
 
@@ -96,6 +96,7 @@ abstract class AbstractHotRodSiteFailoverTest extends AbstractXSiteTest {
       try {
          siteServers.values().forEach(servers ->
             servers.forEach(HotRodClientTestingUtil::killServers));
+         siteServers.clear();
       } finally {
          super.destroy();
       }
@@ -108,12 +109,11 @@ abstract class AbstractHotRodSiteFailoverTest extends AbstractXSiteTest {
       backup.site(backupSiteName).strategy(BackupStrategy.SYNC);
 
       GlobalConfigurationBuilder globalBuilder = GlobalConfigurationBuilder.defaultClusteredBuilder();
-      globalBuilder.site().localSite(siteName);
       TestSite site = createSite(siteName, NODES_PER_SITE, globalBuilder, builder);
       Collection<EmbeddedCacheManager> cacheManagers = site.cacheManagers();
       List<HotRodServer> servers = cacheManagers.stream().map(cm -> serverPort
-         .map(port -> HotRodClientTestingUtil.startHotRodServer(cm, port, new HotRodServerConfigurationBuilder().name(cm.getCacheManagerConfiguration().transport().nodeName())))
-         .orElseGet(() -> HotRodClientTestingUtil.startHotRodServer(cm, new HotRodServerConfigurationBuilder().name(cm.getCacheManagerConfiguration().transport().nodeName())))).collect(Collectors.toList());
+         .map(port -> HotRodClientTestingUtil.startHotRodServer(cm, port, new HotRodServerConfigurationBuilder()))
+         .orElseGet(() -> HotRodClientTestingUtil.startHotRodServer(cm, new HotRodServerConfigurationBuilder()))).collect(Collectors.toList());
       siteServers.put(siteName, servers);
 
       log.debugf("Create site '%s' with ports: %s", siteName,

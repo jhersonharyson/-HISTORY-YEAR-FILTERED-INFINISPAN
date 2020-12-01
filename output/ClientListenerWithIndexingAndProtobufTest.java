@@ -1,6 +1,7 @@
 package org.infinispan.client.hotrod.event;
 
 
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertNotNull;
@@ -18,7 +19,6 @@ import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.TestDo
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.query.dsl.embedded.testdomain.User;
 import org.testng.annotations.Test;
@@ -31,16 +31,16 @@ import org.testng.annotations.Test;
 @Test(groups = "functional", testName = "client.hotrod.event.ClientListenerWithIndexingAndProtobufTest")
 public class ClientListenerWithIndexingAndProtobufTest extends MultiHotRodServersTest {
 
-   private final int NUM_NODES = 2;
+   private static final int NUM_NODES = 2;
 
    private RemoteCache<Object, Object> remoteCache;
 
    @Override
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder cfgBuilder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
-      cfgBuilder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      cfgBuilder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User");
 
       createHotRodServers(NUM_NODES, cfgBuilder);
       waitForClusterToForm();
@@ -52,8 +52,7 @@ public class ClientListenerWithIndexingAndProtobufTest extends MultiHotRodServer
       return TestDomainSCI.INSTANCE;
    }
 
-
-   public void testEventFilter() throws Exception {
+   public void testEventFilter() {
       User user1 = new UserPB();
       user1.setId(1);
       user1.setName("John");

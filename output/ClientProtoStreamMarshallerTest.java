@@ -44,7 +44,7 @@ public class ClientProtoStreamMarshallerTest extends SingleCacheManagerTest {
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       cacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
-      cache = cacheManager.getCache();
+      cache = cacheManager.getCache().getAdvancedCache().withStorageMediaType();
 
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
@@ -59,7 +59,9 @@ public class ClientProtoStreamMarshallerTest extends SingleCacheManagerTest {
    @AfterClass(alwaysRun = true)
    public void release() {
       killRemoteCacheManager(remoteCacheManager);
+      remoteCacheManager = null;
       killServers(hotRodServer);
+      hotRodServer = null;
    }
 
    public void testPutAndGet() throws Exception {

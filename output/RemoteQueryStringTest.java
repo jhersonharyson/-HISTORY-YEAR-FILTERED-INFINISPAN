@@ -2,6 +2,7 @@ package org.infinispan.client.hotrod.query;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 
@@ -20,7 +21,6 @@ import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.Analyz
 import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.TestDomainSCI;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.marshall.AbstractSerializationContextInitializer;
 import org.infinispan.protostream.SerializationContext;
@@ -125,16 +125,21 @@ public class RemoteQueryStringTest extends QueryStringTest {
 
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = hotRodCacheConfiguration();
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User")
+            .addIndexedEntity("sample_bank_account.Account")
+            .addIndexedEntity("sample_bank_account.Transaction")
+            .addIndexedEntity("sample_bank_account.AnalyzerTestEntity");
       return builder;
    }
 
    @AfterClass(alwaysRun = true)
    public void release() {
       killRemoteCacheManager(remoteCacheManager);
+      remoteCacheManager = null;
       killServers(hotRodServer);
+      hotRodServer = null;
    }
 
    @Test(expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = "org.infinispan.objectfilter.ParsingException: ISPN014036: Prefix, wildcard or regexp queries cannot be fuzzy.*")
@@ -169,9 +174,9 @@ public class RemoteQueryStringTest extends QueryStringTest {
     */
    @Override
    public void testInstant1() {
-      Query q = createQueryFromString("from " + getModelFactory().getUserTypeName() + " u where u.creationDate = " + Instant.parse("2011-12-03T10:15:30Z").toEpochMilli());
+      Query<User> q = createQueryFromString("from " + getModelFactory().getUserTypeName() + " u where u.creationDate = " + Instant.parse("2011-12-03T10:15:30Z").toEpochMilli());
 
-      List<User> list = q.list();
+      List<User> list = q.execute().list();
       assertEquals(3, list.size());
    }
 
@@ -181,24 +186,24 @@ public class RemoteQueryStringTest extends QueryStringTest {
     */
    @Override
    public void testInstant2() {
-      Query q = createQueryFromString("from " + getModelFactory().getUserTypeName() + " u where u.passwordExpirationDate = " + Instant.parse("2011-12-03T10:15:30Z").toEpochMilli());
+      Query<User> q = createQueryFromString("from " + getModelFactory().getUserTypeName() + " u where u.passwordExpirationDate = " + Instant.parse("2011-12-03T10:15:30Z").toEpochMilli());
 
-      List<User> list = q.list();
+      List<User> list = q.execute().list();
       assertEquals(3, list.size());
    }
 
    public void testCustomFieldAnalyzer() {
-      Query q = createQueryFromString("from sample_bank_account.AnalyzerTestEntity where f1:'test'");
+      Query<AnalyzerTestEntity> q = createQueryFromString("from sample_bank_account.AnalyzerTestEntity where f1:'test'");
 
-      List<AnalyzerTestEntity> list = q.list();
+      List<AnalyzerTestEntity> list = q.execute().list();
       assertEquals(2, list.size());
    }
 
    @Override
    public void testEqNonIndexedType() {
-      Query q = createQueryFromString("from sample_bank_account.NotIndexed where notIndexedField = 'testing 123'");
+      Query<NotIndexed> q = createQueryFromString("from sample_bank_account.NotIndexed where notIndexedField = 'testing 123'");
 
-      List<NotIndexed> list = q.list();
+      List<NotIndexed> list = q.execute().list();
       assertEquals(1, list.size());
       assertEquals("testing 123", list.get(0).notIndexedField);
    }

@@ -11,7 +11,6 @@ import org.infinispan.client.hotrod.configuration.ExhaustedAction;
 import org.infinispan.client.hotrod.configuration.NearCacheMode;
 import org.infinispan.client.hotrod.configuration.StatisticsConfiguration;
 import org.infinispan.client.hotrod.configuration.TransactionConfigurationBuilder;
-import org.infinispan.client.hotrod.configuration.TransactionMode;
 import org.infinispan.client.hotrod.impl.async.DefaultAsyncExecutorFactory;
 import org.infinispan.client.hotrod.impl.transport.tcp.RoundRobinBalancingStrategy;
 import org.infinispan.commons.util.TypedProperties;
@@ -23,7 +22,8 @@ import org.infinispan.commons.util.TypedProperties;
  * @version 4.1
  */
 public class ConfigurationProperties {
-   private static final String ICH = "infinispan.client.hotrod.";
+   static final String ICH = "infinispan.client.hotrod.";
+   public static final String URI = ICH + "uri";
    public static final String SERVER_LIST = ICH + "server_list";
    public static final String MARSHALLER = ICH + "marshaller";
    public static final String CONTEXT_INITIALIZERS = ICH + "context-initializers";
@@ -35,7 +35,15 @@ public class ConfigurationProperties {
    public static final String TCP_NO_DELAY = ICH + "tcp_no_delay";
    public static final String TCP_KEEP_ALIVE = ICH + "tcp_keep_alive";
    public static final String REQUEST_BALANCING_STRATEGY = ICH + "request_balancing_strategy";
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public static final String KEY_SIZE_ESTIMATE = ICH + "key_size_estimate";
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public static final String VALUE_SIZE_ESTIMATE = ICH + "value_size_estimate";
    public static final String FORCE_RETURN_VALUES = ICH + "force_return_values";
    public static final String HASH_FUNCTION_PREFIX = ICH + "hash_function_impl";
@@ -71,6 +79,8 @@ public class ConfigurationProperties {
    public static final String SASL_PROPERTIES_PREFIX = ICH + "sasl_properties";
    public static final Pattern SASL_PROPERTIES_PREFIX_REGEX =
          Pattern.compile('^' + ConfigurationProperties.SASL_PROPERTIES_PREFIX + '.');
+   public static final String JAVA_SERIAL_ALLOWLIST = ICH + "java_serial_allowlist";
+   @Deprecated
    public static final String JAVA_SERIAL_WHITELIST = ICH + "java_serial_whitelist";
    public static final String BATCH_SIZE = ICH + "batch_size";
    // Statistics properties
@@ -85,6 +95,7 @@ public class ConfigurationProperties {
    // Near cache properties
    public static final String NEAR_CACHE_MAX_ENTRIES = ICH + "near_cache.max_entries";
    public static final String NEAR_CACHE_MODE = ICH + "near_cache.mode";
+   public static final String NEAR_CACHE_BLOOM_FILTER = ICH + "near_cache.bloom_filter";
    public static final String NEAR_CACHE_NAME_PATTERN = ICH + "near_cache.name_pattern";
    // Pool properties
    public static final String CONNECTION_POOL_MAX_ACTIVE = ICH + "connection_pool.max_active";
@@ -97,9 +108,26 @@ public class ConfigurationProperties {
    public static final String CLUSTER_PROPERTIES_PREFIX = ICH + "cluster";
    public static final Pattern CLUSTER_PROPERTIES_PREFIX_REGEX =
          Pattern.compile('^' + ConfigurationProperties.CLUSTER_PROPERTIES_PREFIX + '.');
+   // Cache properties
+   public static final String CACHE_PREFIX= ICH + "cache.";
+   public static final String CACHE_CONFIGURATION_SUFFIX = ".configuration";
+   public static final String CACHE_CONFIGURATION_URI_SUFFIX = ".configuration_uri";
+   public static final String CACHE_FORCE_RETURN_VALUES_SUFFIX = ".force_return_values";
+   public static final String CACHE_NEAR_CACHE_MODE_SUFFIX = ".near_cache.mode";
+   public static final String CACHE_NEAR_CACHE_MAX_ENTRIES_SUFFIX = ".near_cache.max_entries";
+   public static final String CACHE_TEMPLATE_NAME_SUFFIX = ".template_name";
+   public static final String CACHE_TRANSACTION_MODE_SUFFIX = ".transaction_mode";
 
    // defaults
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public static final int DEFAULT_KEY_SIZE = 64;
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public static final int DEFAULT_VALUE_SIZE = 512;
    public static final int DEFAULT_HOTROD_PORT = 11222;
    public static final int DEFAULT_SO_TIMEOUT = 60_000;
@@ -126,6 +154,14 @@ public class ConfigurationProperties {
 
    public ConfigurationProperties(Properties props) {
       this.props = props == null ? new TypedProperties() : TypedProperties.toTypedProperties(props);
+   }
+
+   public void setURI(String uri) {
+      props.setProperty(URI, uri);
+   }
+
+   public String getURI() {
+      return props.getProperty(URI);
    }
 
    public void setServerList(String serverList) {
@@ -196,18 +232,34 @@ public class ConfigurationProperties {
       return props.getProperty(REQUEST_BALANCING_STRATEGY, RoundRobinBalancingStrategy.class.getName());
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public int getKeySizeEstimate() {
       return props.getIntProperty(KEY_SIZE_ESTIMATE, DEFAULT_KEY_SIZE);
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public void setKeySizeEstimate(int keySizeEstimate) {
       props.setProperty(KEY_SIZE_ESTIMATE, keySizeEstimate);
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public int getValueSizeEstimate() {
       return props.getIntProperty(VALUE_SIZE_ESTIMATE, DEFAULT_VALUE_SIZE);
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public void setValueSizeEstimate(int valueSizeEstimate) {
       props.setProperty(VALUE_SIZE_ESTIMATE, valueSizeEstimate);
    }
@@ -324,10 +376,18 @@ public class ConfigurationProperties {
       props.setProperty(TRUST_STORE_PASSWORD, trustStorePassword);
    }
 
+   /**
+    * @deprecated Since 12.0 and will be removed in 15.0
+    */
+   @Deprecated
    public String getTrustStorePath() {
       return props.getProperty(TRUST_STORE_PATH);
    }
 
+   /**
+    * @deprecated Since 12.0 and will be removed in 15.0
+    */
+   @Deprecated
    public void setTrustStorePath(String trustStorePath) {
       props.setProperty(TRUST_STORE_PATH, trustStorePath);
    }
@@ -452,22 +512,6 @@ public class ConfigurationProperties {
       return props.getProperty(TRANSACTION_MANAGER_LOOKUP, TransactionConfigurationBuilder.defaultTransactionManagerLookup().getClass().getName(), true);
    }
 
-   public void setTransactionManagerLookup(String transactionManagerLookup) {
-      props.setProperty(TRANSACTION_MANAGER_LOOKUP, transactionManagerLookup);
-   }
-
-   public TransactionMode getTransactionMode() {
-      return props.getEnumProperty(TRANSACTION_MODE, TransactionMode.class, TransactionMode.NONE, true);
-   }
-
-   public void setTransactionMode(String transactionMode) {
-      props.setProperty(TRANSACTION_MODE, transactionMode);
-   }
-
-   public void setTransactionTimeout(long transactionTimeout) {
-      props.setProperty(TRANSACTION_TIMEOUT, transactionTimeout);
-   }
-
    public NearCacheMode getNearCacheMode() {
       return props.getEnumProperty(NEAR_CACHE_MODE, NearCacheMode.class, NearCacheMode.DISABLED, true);
    }
@@ -548,15 +592,36 @@ public class ConfigurationProperties {
       return Objects.equals(version, "1.0") || Objects.equals(version, "1.1");
    }
 
-   public long getTransactionTimeout() {
-      return props.getLongProperty(TRANSACTION_TIMEOUT, TransactionConfigurationBuilder.DEFAULT_TIMEOUT);
-   }
-
    public String getServerList(){
       return props.getProperty(SERVER_LIST);
    }
 
+   /**
+    * @deprecated Use {@link #setJavaSerialAllowList(String)} instead. To be removed in 14.0.
+    * @param javaSerialWhitelist
+    */
+   @Deprecated
    public void setJavaSerialWhitelist(String javaSerialWhitelist) {
-      props.setProperty(JAVA_SERIAL_WHITELIST, javaSerialWhitelist);
+      setJavaSerialAllowList(javaSerialWhitelist);
+   }
+
+   public void setJavaSerialAllowList(String javaSerialAllowlist) {
+      props.setProperty(JAVA_SERIAL_ALLOWLIST, javaSerialAllowlist);
+   }
+
+   public void setTransactionMode(String transactionMode) {
+      props.setProperty(TRANSACTION_MODE, transactionMode);
+   }
+
+   public String getTransactionMode() {
+      return props.getProperty(TRANSACTION_MODE);
+   }
+
+   public void setTransactionTimeout(int transactionTimeout) {
+      props.setProperty(TRANSACTION_TIMEOUT, transactionTimeout);
+   }
+
+   public int getTransactionTimeout() {
+      return props.getIntProperty(TRANSACTION_TIMEOUT, DEFAULT_SO_TIMEOUT);
    }
 }

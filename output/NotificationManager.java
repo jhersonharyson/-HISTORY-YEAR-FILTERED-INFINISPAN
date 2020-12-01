@@ -36,7 +36,6 @@ import org.infinispan.counter.api.Handle;
  */
 public class NotificationManager {
    private static final Log log = LogFactory.getLog(NotificationManager.class, Log.class);
-   private static final boolean trace = log.isTraceEnabled();
    private static final CompletableFuture<Short> NO_ERROR_FUTURE = CompletableFuture.completedFuture((short) HotRodConstants.NO_ERROR_STATUS);
 
    private final byte[] listenerId;
@@ -54,7 +53,7 @@ public class NotificationManager {
    }
 
    public <T extends CounterListener> Handle<T> addListener(String counterName, T listener) {
-      if (trace) {
+      if (log.isTraceEnabled()) {
          log.tracef("Add listener for counter '%s'", counterName);
       }
 
@@ -90,7 +89,7 @@ public class NotificationManager {
    }
 
    private void removeListener(String counterName, HandleImpl<?> handle) {
-      if (trace) {
+      if (log.isTraceEnabled()) {
          log.tracef("Remove listener for counter '%s'", counterName);
       }
       clientListeners.computeIfPresent(counterName, (name, list) -> {
@@ -108,13 +107,13 @@ public class NotificationManager {
       });
    }
 
-   private CompletableFuture<Short> failover() {
+   private CompletableFuture<Void> failover() {
       dispatcher = null;
       Iterator<String> iterator = clientListeners.keySet().iterator();
       if (!iterator.hasNext()) {
-         return NO_ERROR_FUTURE;
+         return null;
       }
-      CompletableFuture<Short> cf = new CompletableFuture<>();
+      CompletableFuture<Void> cf = new CompletableFuture<>();
       String firstCounterName = iterator.next();
       AddListenerOperation op = factory.newAddListenerOperation(firstCounterName, listenerId, null);
       log.debugf("Lock %s", lock);
@@ -155,13 +154,13 @@ public class NotificationManager {
                                  cf.completeExceptionally(new IllegalStateException("Unexpected to use another channel for the same counter"));
                               }
                               if (counter.decrementAndGet() == 0) {
-                                 cf.complete((short) 0);
+                                 cf.complete(null);
                               }
                            }
                         });
                }
                if (counter.decrementAndGet() == 0) {
-                  cf.complete((short) 0);
+                  cf.complete(null);
                }
             }
          });
@@ -169,7 +168,7 @@ public class NotificationManager {
       } else {
          lock.unlock();
          log.debugf("UnLock %s", lock);
-         return NO_ERROR_FUTURE;
+         return null;
       }
    }
 

@@ -1,16 +1,15 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
 import static org.infinispan.client.hotrod.impl.Util.await;
-import static org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil.hexDump;
+import static org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil.limitedHexDump;
 import static org.infinispan.client.hotrod.logging.Log.HOTROD;
-import static org.infinispan.client.hotrod.marshall.MarshallerUtil.bytes2obj;
 
 import java.lang.annotation.Annotation;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -36,7 +35,7 @@ import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
-import org.infinispan.commons.configuration.ClassWhiteList;
+import org.infinispan.commons.configuration.ClassAllowList;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.Closeables;
@@ -54,8 +53,6 @@ import io.netty.buffer.ByteBuf;
 public class Codec20 implements Codec, HotRodConstants {
 
    static final Log log = LogFactory.getLog(Codec.class, Log.class);
-
-   final boolean trace = getLog().isTraceEnabled();
 
    public void writeClientListenerInterests(ByteBuf buf, Set<Class<? extends Annotation>> classes) {
       // No-op
@@ -89,6 +86,13 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
+   public void writeBloomFilter(ByteBuf buf, int bloomFilterBits) {
+      if (bloomFilterBits > 0) {
+         throw new UnsupportedOperationException("Bloom Filter optimization is not available for versions before 3.1");
+      }
+   }
+
+   @Override
    public int estimateExpirationSize(long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
       int lifespanSeconds = CodecUtils.toSeconds(lifespan, lifespanTimeUnit);
       int maxIdleSeconds = CodecUtils.toSeconds(maxIdle, maxIdleTimeUnit);
@@ -109,8 +113,7 @@ public class Codec20 implements Codec, HotRodConstants {
       }
    }
 
-   protected HeaderParams writeHeader(
-         ByteBuf buf, HeaderParams params, byte version) {
+   protected HeaderParams writeHeader(ByteBuf buf, HeaderParams params, byte version) {
       buf.writeByte(HotRodConstants.REQUEST_MAGIC);
       ByteBufUtil.writeVLong(buf, params.messageId);
       buf.writeByte(version);
@@ -122,9 +125,9 @@ public class Codec20 implements Codec, HotRodConstants {
       int topologyId = params.topologyId.get();
       ByteBufUtil.writeVInt(buf, topologyId);
 
-      if (trace)
-         getLog().tracef("[%s] Wrote header for messageId=%d to %s. Operation code: %#04x(%s). Flags: %#x. Topology id: %s",
-               new String(params.cacheName), params.messageId, buf, params.opCode,
+      if (log.isTraceEnabled())
+         getLog().tracef("[%s] Wrote header for messageId=%d. Operation code: %#04x(%s). Flags: %#x. Topology id: %s",
+               new String(params.cacheName), params.messageId, params.opCode,
                Names.of(params.opCode), joinedFlags, topologyId);
 
       return params;
@@ -142,23 +145,16 @@ public class Codec20 implements Codec, HotRodConstants {
       if (magic != HotRodConstants.RESPONSE_MAGIC) {
          final Log localLog = getLog();
 
-         if (trace)
-            localLog.tracef("Socket dump: %s", hexDump(buf));
+         if (log.isTraceEnabled())
+            localLog.tracef("Socket dump: %s", limitedHexDump(buf));
          throw HOTROD.invalidMagicNumber(HotRodConstants.RESPONSE_MAGIC, magic);
       }
-      long receivedMessageId = ByteBufUtil.readVLong(buf);
-      if (trace) {
-         getLog().tracef("Received response for messageId=%d", receivedMessageId);
-      }
-      return receivedMessageId;
+      return ByteBufUtil.readVLong(buf);
    }
 
    @Override
    public short readOpCode(ByteBuf buf) {
-      short receivedOpCode = buf.readUnsignedByte();
-      if (trace)
-         getLog().tracef("Received operation code is: %#04x(%s)", receivedOpCode, Names.of(receivedOpCode));
-      return receivedOpCode;
+      return buf.readUnsignedByte();
    }
 
    @Override
@@ -239,7 +235,7 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public AbstractClientEvent readCacheEvent(ByteBuf buf, Function<byte[], DataFormat> listenerDataFormat, short eventTypeId, ClassWhiteList whitelist, SocketAddress serverAddress) {
+   public AbstractClientEvent readCacheEvent(ByteBuf buf, Function<byte[], DataFormat> listenerDataFormat, short eventTypeId, ClassAllowList allowList, SocketAddress serverAddress) {
       short status = buf.readUnsignedByte();
       buf.readUnsignedByte(); // ignore, no topology expected
       ClientEvent.Type eventType;
@@ -266,18 +262,18 @@ public class Codec20 implements Codec, HotRodConstants {
       boolean isRetried = buf.readUnsignedByte() == 1;
       DataFormat dataFormat = listenerDataFormat.apply(listenerId);
       if (isCustom == 1) {
-         final Object eventData = dataFormat.valueToObj(ByteBufUtil.readArray(buf), whitelist);
+         final Object eventData = dataFormat.valueToObj(ByteBufUtil.readArray(buf), allowList);
          return createCustomEvent(listenerId, eventData, eventType, isRetried);
       } else {
          switch (eventType) {
             case CLIENT_CACHE_ENTRY_CREATED:
                long createdDataVersion = buf.readLong();
-               return createCreatedEvent(listenerId, dataFormat.keyToObj(ByteBufUtil.readArray(buf), whitelist), createdDataVersion, isRetried);
+               return createCreatedEvent(listenerId, dataFormat.keyToObj(ByteBufUtil.readArray(buf), allowList), createdDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_MODIFIED:
                long modifiedDataVersion = buf.readLong();
-               return createModifiedEvent(listenerId, dataFormat.keyToObj(ByteBufUtil.readArray(buf), whitelist), modifiedDataVersion, isRetried);
+               return createModifiedEvent(listenerId, dataFormat.keyToObj(ByteBufUtil.readArray(buf), allowList), modifiedDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_REMOVED:
-               return createRemovedEvent(listenerId, dataFormat.keyToObj(ByteBufUtil.readArray(buf), whitelist), isRetried);
+               return createRemovedEvent(listenerId, dataFormat.keyToObj(ByteBufUtil.readArray(buf), allowList), isRetried);
             default:
                throw HOTROD.unknownEvent(eventTypeId);
          }
@@ -285,9 +281,9 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassWhiteList whitelist, Marshaller marshaller) {
+   public Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller) {
       if (HotRodConstants.hasPrevious(status)) {
-         return bytes2obj(marshaller, ByteBufUtil.readArray(buf), dataFormat.isObjectStorage(), whitelist);
+         return dataFormat.valueToObj(ByteBufUtil.readArray(buf), allowList);
       } else {
          return null;
       }
@@ -316,7 +312,7 @@ public class Codec20 implements Codec, HotRodConstants {
 
    protected void checkForErrorsInResponseStatus(ByteBuf buf, HeaderParams params, short status, SocketAddress serverAddress) {
       final Log localLog = getLog();
-      if (trace) localLog.tracef("[%s] Received operation status: %#x", new String(params.cacheName), status);
+      if (log.isTraceEnabled()) localLog.tracef("[%s] Received operation status: %#x", new String(params.cacheName), status);
 
       String msgFromServer;
       try {
@@ -329,7 +325,7 @@ public class Codec20 implements Codec, HotRodConstants {
             case HotRodConstants.UNKNOWN_VERSION_STATUS: {
                // If error, the body of the message just contains a message
                msgFromServer = ByteBufUtil.readString(buf);
-               if (status == HotRodConstants.COMMAND_TIMEOUT_STATUS && trace) {
+               if (status == HotRodConstants.COMMAND_TIMEOUT_STATUS && log.isTraceEnabled()) {
                   localLog.tracef("Server-side timeout performing operation: %s", msgFromServer);
                } else {
                   HOTROD.errorFromServer(msgFromServer);
@@ -342,7 +338,7 @@ public class Codec20 implements Codec, HotRodConstants {
             case HotRodConstants.NODE_SUSPECTED:
                // Handle both Infinispan's and JGroups' suspicions
                msgFromServer = ByteBufUtil.readString(buf);
-               if (trace)
+               if (log.isTraceEnabled())
                   localLog.tracef("[%s] A remote node was suspected while executing messageId=%d. " +
                               "Check if retry possible. Message from server: %s",
                         new String(params.cacheName), params.messageId, msgFromServer);
@@ -378,7 +374,7 @@ public class Codec20 implements Codec, HotRodConstants {
       final Log localLog = getLog();
       int newTopologyId = ByteBufUtil.readVInt(buf);
 
-      SocketAddress[] addresses = readTopology(buf);
+      InetSocketAddress[] addresses = readTopology(buf);
 
       final short hashFunctionVersion;
       final SocketAddress[][] segmentOwners;
@@ -408,14 +404,14 @@ public class Codec20 implements Codec, HotRodConstants {
       // but we should still accept the topology
       if (params.topologyAge < topologyAge || params.topologyAge == topologyAge && currentTopology != newTopologyId) {
          params.topologyId.set(newTopologyId);
-         List<SocketAddress> addressList = Arrays.asList(addresses);
+         Collection<InetSocketAddress> addressList = Arrays.asList(addresses);
          if (HOTROD.isInfoEnabled()) {
             HOTROD.newTopology(newTopologyId, topologyAge,
                   addresses.length, new HashSet<>(addressList));
          }
          channelFactory.updateServers(addressList, params.cacheName, false);
          if (hashFunctionVersion >= 0) {
-            if (trace) {
+            if (log.isTraceEnabled()) {
                String cacheNameString = new String(params.cacheName);
                if (hashFunctionVersion == 0)
                   localLog.tracef("[%s] Not using a consistent hash function (hash function version == 0).", cacheNameString);
@@ -426,15 +422,15 @@ public class Codec20 implements Codec, HotRodConstants {
                   segmentOwners.length, hashFunctionVersion, params.cacheName, params.topologyId);
          }
       } else {
-         if (trace)
+         if (log.isTraceEnabled())
             localLog.tracef("[%s] Outdated topology received (topology id = %s, topology age = %s), so ignoring it: %s",
                   new String(params.cacheName), newTopologyId, topologyAge, Arrays.toString(addresses));
       }
    }
 
-   private SocketAddress[] readTopology(ByteBuf buf) {
+   private InetSocketAddress[] readTopology(ByteBuf buf) {
       int clusterSize = ByteBufUtil.readVInt(buf);
-      SocketAddress[] addresses = new SocketAddress[clusterSize];
+      InetSocketAddress[] addresses = new InetSocketAddress[clusterSize];
       for (int i = 0; i < clusterSize; i++) {
          String host = ByteBufUtil.readString(buf);
          int port = buf.readUnsignedShort();

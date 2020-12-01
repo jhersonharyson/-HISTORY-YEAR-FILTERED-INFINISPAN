@@ -2,6 +2,7 @@ package org.infinispan.client.hotrod.query;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
@@ -30,7 +31,6 @@ import org.infinispan.commons.jmx.MBeanServerLookup;
 import org.infinispan.commons.jmx.TestMBeanServerLookup;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.configuration.internal.PrivateGlobalConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -53,7 +53,8 @@ import org.testng.annotations.Test;
  * @author anistor@redhat.com
  * @since 6.0
  */
-@Test(testName = "client.hotrod.query.RemoteQueryJmxTest", groups = "functional")
+// TODO HSEARCH-3129 Restore support for statistics
+@Test(testName = "client.hotrod.query.RemoteQueryJmxTest", groups = "functional", enabled = false)
 public class RemoteQueryJmxTest extends SingleCacheManagerTest {
 
    private static final String TEST_CACHE_NAME = "userCache";
@@ -69,28 +70,13 @@ public class RemoteQueryJmxTest extends SingleCacheManagerTest {
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       GlobalConfigurationBuilder gcb = new GlobalConfigurationBuilder().nonClusteredDefault();
-      gcb.globalJmxStatistics()
-            .enable()
-            .jmxDomain(JMX_DOMAIN)
-            .mBeanServerLookup(mBeanServerLookup);
+      gcb.jmx().enabled(true)
+         .domain(JMX_DOMAIN)
+         .mBeanServerLookup(mBeanServerLookup);
       gcb.addModule(PrivateGlobalConfigurationBuilder.class).serverMode(true);
 
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
-
-      cacheManager = TestCacheManagerFactory.createCacheManager(gcb, builder);
-      cacheManager.defineConfiguration(TEST_CACHE_NAME, builder.build());
-      cache = cacheManager.getCache(TEST_CACHE_NAME);
-
+      cacheManager = TestCacheManagerFactory.createCacheManager(gcb, null);
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
-
-      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
-      clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort()).addContextInitializer(TestDomainSCI.INSTANCE);
-      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
-
-      remoteCache = remoteCacheManager.getCache(TEST_CACHE_NAME);
 
       ProtobufMetadataManagerMBean protobufMetadataManagerMBean = JMX.newMBeanProxy(mBeanServer, getProtobufMetadataManagerObjectName(), ProtobufMetadataManagerMBean.class);
       String protofile = Util.getResourceAsString("/sample_bank_account/bank.proto", getClass().getClassLoader());
@@ -98,13 +84,27 @@ public class RemoteQueryJmxTest extends SingleCacheManagerTest {
       assertEquals(protofile, protobufMetadataManagerMBean.getProtofile("sample_bank_account/bank.proto"));
       assertNull(protobufMetadataManagerMBean.getFilesWithErrors());
       assertTrue(Arrays.asList(protobufMetadataManagerMBean.getProtofileNames()).contains("sample_bank_account/bank.proto"));
+
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User");
+      cacheManager.defineConfiguration(TEST_CACHE_NAME, builder.build());
+      cache = cacheManager.getCache(TEST_CACHE_NAME);
+
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
+      clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort()).addContextInitializer(TestDomainSCI.INSTANCE);
+      remoteCacheManager = new RemoteCacheManager(clientBuilder.build());
+      remoteCache = remoteCacheManager.getCache(TEST_CACHE_NAME);
       return cacheManager;
    }
 
    @AfterClass(alwaysRun = true)
    public void release() {
       killRemoteCacheManager(remoteCacheManager);
+      remoteCacheManager = null;
       killServers(hotRodServer);
+      hotRodServer = null;
    }
 
    public void testIndexAndQuery() throws Exception {
@@ -122,10 +122,8 @@ public class RemoteQueryJmxTest extends SingleCacheManagerTest {
 
       // get user back from remote cache via query and check its attributes
       QueryFactory qf = Search.getQueryFactory(remoteCache);
-      Query query = qf.from(UserPB.class)
-            .having("addresses.postCode").eq("1231")
-            .build();
-      List<User> list = query.list();
+      Query<User> query = qf.create("FROM sample_bank_account.User u WHERE u.addresses.postCode = '1231'");
+      List<User> list = query.execute().list();
       assertNotNull(list);
       assertEquals(1, list.size());
       assertEquals(UserPB.class, list.get(0).getClass());

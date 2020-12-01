@@ -5,6 +5,7 @@ import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withClie
 import static org.infinispan.commons.dataconversion.MediaType.APPLICATION_JSON;
 import static org.infinispan.commons.dataconversion.MediaType.APPLICATION_PROTOSTREAM;
 import static org.infinispan.commons.dataconversion.MediaType.TEXT_PLAIN;
+import static org.infinispan.query.remote.client.ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.infinispan.test.fwk.TestCacheManagerFactory.createServerModeCacheManager;
 import static org.testng.Assert.assertTrue;
@@ -12,8 +13,6 @@ import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.internal.junit.ArrayAsserts.assertArrayEquals;
 
-import java.io.IOException;
-import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,9 +29,11 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.event.EventLogListener;
 import org.infinispan.client.hotrod.event.EventLogListener.RawStaticFilteredEventLogListener;
 import org.infinispan.client.hotrod.event.EventLogListener.StaticFilteredEventLogListener;
+import org.infinispan.client.hotrod.query.RemoteQueryTestUtils;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.commons.dataconversion.MediaType;
+import org.infinispan.commons.dataconversion.internal.Json;
 import org.infinispan.commons.io.ByteBuffer;
 import org.infinispan.commons.io.ByteBufferImpl;
 import org.infinispan.commons.marshall.AbstractMarshaller;
@@ -42,14 +43,12 @@ import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.protostream.annotations.AutoProtoSchemaBuilder;
+import org.infinispan.protostream.annotations.ProtoDoc;
 import org.infinispan.protostream.annotations.ProtoFactory;
 import org.infinispan.protostream.annotations.ProtoField;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.testng.annotations.Test;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * Tests for the Hot Rod client using multiple data formats when interacting with the server.
@@ -137,13 +136,13 @@ public class DataFormatTest extends SingleHotRodServerTest {
       assertArrayEquals(protostreamMarshalledQuote, (byte[]) allEntries.get(1));
 
       // Read value as JSON in the byte[] form, using the same key
-      ObjectNode expectedJson = new ObjectMapper().createObjectNode().put("_type", "string").put("_value", quote);
+      Json expectedJson = Json.object("_type", "string").set("_value", quote);
       Object asJSon = remoteCache.withDataFormat(DataFormat.builder().valueType(APPLICATION_JSON).build()).get(1);
 
-      assertEquals(expectedJson, new ObjectMapper().readTree((byte[]) asJSon));
+      assertEquals(expectedJson, Json.read(new String((byte[]) asJSon)));
 
-      ObjectNode asJsonNode = (ObjectNode) remoteCache
-            .withDataFormat(DataFormat.builder().valueType(APPLICATION_JSON).valueMarshaller(new JacksonMarshaller()).build())
+      Json asJsonNode = (Json) remoteCache
+            .withDataFormat(DataFormat.builder().valueType(APPLICATION_JSON).valueMarshaller(new JsonMarshaller()).build())
             .get(1);
 
       assertEquals(expectedJson, asJsonNode);
@@ -155,8 +154,8 @@ public class DataFormatTest extends SingleHotRodServerTest {
       assertArrayEquals(protostreamMarshalledQuote, ((byte[]) raw));
 
       // Iterate values converting to JsonNode objects
-      asJsonNode = (ObjectNode) remoteCache
-            .withDataFormat(DataFormat.builder().valueType(APPLICATION_JSON).valueMarshaller(new JacksonMarshaller()).build())
+      asJsonNode = (Json) remoteCache
+            .withDataFormat(DataFormat.builder().valueType(APPLICATION_JSON).valueMarshaller(new JsonMarshaller()).build())
             .values().iterator().next();
 
       assertEquals(expectedJson, asJsonNode);
@@ -219,10 +218,11 @@ public class DataFormatTest extends SingleHotRodServerTest {
    public void testBatchOperations() {
       remoteCache.clear();
 
-      Map<ComplexKey, String> entries = new HashMap<>();
+      Map<ComplexKey, ComplexValue> entries = new HashMap<>();
       IntStream.range(0, 50).forEach(i -> {
          ComplexKey key = new ComplexKey(String.valueOf(i), (float) i);
-         entries.put(key, UUID.randomUUID().toString());
+         ComplexValue value = new ComplexValue(UUID.randomUUID());
+         entries.put(key, value);
       });
       remoteCache.putAll(entries);
 
@@ -237,10 +237,12 @@ public class DataFormatTest extends SingleHotRodServerTest {
 
       // Write using JSON
       IntStream.range(50, 100).forEach(i -> {
-         ObjectNode key = new ObjectMapper().createObjectNode().put("_type", "org.infinispan.test.client.DataFormatTest.ComplexKey")
-               .put("id", i)
-               .put("ratio", i);
-         newEntries.put(key.toString(), UUID.randomUUID().toString());
+         Json key = Json.object("_type", "org.infinispan.test.client.DataFormatTest.ComplexKey")
+               .set("id", i)
+               .set("ratio", i);
+         Json value = Json.object("_type", "org.infinispan.test.client.DataFormatTest.ComplexValue")
+               .set("uuid",  UUID.randomUUID().toString());
+         newEntries.put(key.toString(), value.toString());
       });
       jsonCache.putAll(newEntries);
 
@@ -256,6 +258,7 @@ public class DataFormatTest extends SingleHotRodServerTest {
       remoteCache.clear();
 
       ComplexKey complexKey = new ComplexKey("Key-1", 89.88f);
+      ComplexValue complexValue = new ComplexValue(UUID.randomUUID());
 
       // Receive events as JSON Strings
       DataFormat jsonStringFormat = DataFormat.builder().keyType(APPLICATION_JSON).keyMarshaller(new UTF8StringMarshaller()).build();
@@ -263,7 +266,7 @@ public class DataFormatTest extends SingleHotRodServerTest {
       EventLogListener<Object> l = new EventLogListener<>(remoteCache.withDataFormat(jsonStringFormat));
 
       withClientListener(l, remote -> {
-         remoteCache.put(complexKey, UUID.randomUUID().toString());
+         remoteCache.put(complexKey, complexValue);
          l.expectOnlyCreatedEvent("\n{\n   \"_type\": \"org.infinispan.test.client.DataFormatTest.ComplexKey\",\n   \"id\": \"Key-1\",\n   \"ratio\": 89.88\n}\n");
       });
    }
@@ -299,19 +302,23 @@ public class DataFormatTest extends SingleHotRodServerTest {
    }
 
    @Test
-   public void testJsonFromDefaultCache() {
+   public void testJsonFromDefaultCache()  {
+      RemoteCache<String, String> schemaCache = remoteCacheManager.getCache(PROTOBUF_METADATA_CACHE_NAME);
+      schemaCache.put("schema.proto", "message M { optional string json_key = 1; }");
+      RemoteQueryTestUtils.checkSchemaErrors(schemaCache);
+
       DataFormat jsonValues = DataFormat.builder()
             .valueType(APPLICATION_JSON)
             .valueMarshaller(new UTF8StringMarshaller()).build();
 
       RemoteCache<Integer, String> cache = remoteCacheManager.getCache().withDataFormat(jsonValues);
 
-      String value = "{\"json_key\":\"json_value\"}";
+      String value = "{\"_type\":\"M\",\"json_key\":\"json_value\"}";
       cache.put(1, value);
 
       String valueAsJson = cache.get(1);
-
-      assertEquals(value, valueAsJson);
+      Json node = Json.read(valueAsJson);
+      assertEquals("json_value", node.at("json_key").asString());
    }
 
    private byte[] marshall(Object o) throws Exception {
@@ -319,28 +326,27 @@ public class DataFormatTest extends SingleHotRodServerTest {
    }
 
    @AutoProtoSchemaBuilder(
-         includeClasses = ComplexKey.class,
+         includeClasses = {ComplexKey.class, ComplexValue.class},
          schemaFileName = "test.client.DataFormatTest.proto",
          schemaFilePath = "proto/generated",
-         schemaPackageName = "org.infinispan.test.client.DataFormatTest")
+         schemaPackageName = "org.infinispan.test.client.DataFormatTest"
+   )
    interface SCI extends SerializationContextInitializer {
       SCI INSTANCE = new SCIImpl();
    }
 }
 
-class JacksonMarshaller extends AbstractMarshaller {
-
-   private static final ObjectMapper MAPPER = new ObjectMapper();
+class JsonMarshaller extends AbstractMarshaller {
 
    @Override
-   protected ByteBuffer objectToBuffer(Object o, int estimatedSize) throws IOException {
-      byte[] bytes = MAPPER.writeValueAsBytes(o);
-      return new ByteBufferImpl(bytes, 0, bytes.length);
+   protected ByteBuffer objectToBuffer(Object o, int estimatedSize) {
+      byte[] bytes = Json.make(o).asString().getBytes(UTF_8);
+      return ByteBufferImpl.create(bytes);
    }
 
    @Override
-   public Object objectFromByteBuffer(byte[] buf, int offset, int length) throws IOException {
-      return MAPPER.readTree(buf);
+   public Object objectFromByteBuffer(byte[] buf, int offset, int length) {
+      return Json.read(new String(buf, offset, length, UTF_8));
    }
 
    @Override
@@ -354,10 +360,9 @@ class JacksonMarshaller extends AbstractMarshaller {
    }
 }
 
-@SuppressWarnings("unused")
-class ComplexKey implements Serializable {
+class ComplexKey {
 
-   @ProtoField(number = 1)
+   @ProtoField(1)
    String id;
 
    @ProtoField(number = 2, defaultValue = "0")
@@ -374,12 +379,49 @@ class ComplexKey implements Serializable {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
       ComplexKey that = (ComplexKey) o;
-      return Objects.equals(id, that.id) &&
-            Objects.equals(ratio, that.ratio);
+      return Objects.equals(id, that.id) && Objects.equals(ratio, that.ratio);
    }
 
    @Override
    public int hashCode() {
       return Objects.hash(id, ratio);
+   }
+}
+
+@ProtoDoc("@Indexed")
+class ComplexValue {
+
+   private UUID uuid;
+
+   @ProtoFactory
+   ComplexValue(String uuid) {
+      setUuid(uuid);
+   }
+
+   ComplexValue(UUID uuid) {
+      this.uuid = uuid;
+   }
+
+   @ProtoField(1)
+   @ProtoDoc("@Field(store = Store.YES)")
+   public String getUuid() {
+      return uuid.toString();
+   }
+
+   public void setUuid(String uuid) {
+      this.uuid =  UUID.fromString(uuid);
+   }
+
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      ComplexValue that = (ComplexValue) o;
+      return Objects.equals(uuid, that.uuid);
+   }
+
+   @Override
+   public int hashCode() {
+      return uuid.hashCode();
    }
 }

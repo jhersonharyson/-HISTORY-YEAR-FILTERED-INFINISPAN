@@ -13,7 +13,7 @@ import org.infinispan.commons.configuration.BasicConfiguration;
 public interface RemoteCacheManagerAdmin extends CacheContainerAdmin<RemoteCacheManagerAdmin, BasicConfiguration> {
 
    /**
-    * Creates a cache on the remote server cluster using the specified template.
+    * Creates a cache on the remote server cluster using the specified template name.
     *
     * @param name the name of the cache to create
     * @param template the template to use for the cache. If null, the configuration marked as default on the server
@@ -25,12 +25,23 @@ public interface RemoteCacheManagerAdmin extends CacheContainerAdmin<RemoteCache
    <K, V> RemoteCache<K, V> createCache(String name, String template) throws HotRodClientException;
 
    /**
+    * Creates a cache on the remote server cluster using the specified default configuration template
+    * present in the server.
+    *
+    * @param name the name of the cache to create
+    * @param template {@link DefaultTemplate} enum
+    * @return the cache
+    * @throws HotRodClientException
+    */
+   <K, V> RemoteCache<K, V> createCache(String name, DefaultTemplate template) throws HotRodClientException;
+
+   /**
     * Creates a cache on the remote server cluster using the specified configuration
     *
     * @param name the name of the cache to create
     * @param configuration a concrete configuration that will be sent to the server. The XML representation of this
     *                      configuration must use the Infinispan embedded configuration schema in a version supported
-    *                      by the server.
+    *                      by the server. A cache configuration fragment on its own is valid XML.
     * @return the cache
     * @throws HotRodClientException
     */
@@ -39,7 +50,7 @@ public interface RemoteCacheManagerAdmin extends CacheContainerAdmin<RemoteCache
 
    /**
     * Retrieves an existing cache on the remote server cluster. If it doesn't exist, it will be created using the
-    * specified template.
+    * specified template name.
     *
     * @param name the name of the cache to create
     * @param template the template to use for the cache. If null, the configuration marked as default on the server
@@ -51,13 +62,24 @@ public interface RemoteCacheManagerAdmin extends CacheContainerAdmin<RemoteCache
    <K, V> RemoteCache<K, V> getOrCreateCache(String name, String template) throws HotRodClientException;
 
    /**
+    *  Retrieves an existing cache on the remote server cluster. If it doesn't exist, it will be created using the
+    *  specified default template that is present in the server.
+    *
+    * @param name the name of the cache to create
+    * @param template {@link DefaultTemplate} enum
+    * @return the cache
+    * @throws HotRodClientException
+    */
+   <K, V> RemoteCache<K, V> getOrCreateCache(String name, DefaultTemplate template) throws HotRodClientException;
+
+   /**
     * Retrieves an existing cache on the remote server cluster. If it doesn't exist, it will be created using the
     * specified configuration.
     *
     * @param name the name of the cache to create
     * @param configuration a concrete configuration that will be sent to the server. The XML representation of this
     *                      configuration must use the Infinispan embedded configuration schema in a version supported
-    *                      by the server.
+    *                      by the server. A cache configuration fragment on its own is valid XML.
     * @return the cache
     * @throws HotRodClientException
     */

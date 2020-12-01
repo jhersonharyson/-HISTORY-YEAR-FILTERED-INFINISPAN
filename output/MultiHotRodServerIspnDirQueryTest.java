@@ -1,10 +1,10 @@
 package org.infinispan.client.hotrod.query;
 
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.testng.annotations.Test;
 
@@ -24,9 +24,9 @@ public class MultiHotRodServerIspnDirQueryTest extends MultiHotRodServerQueryTes
       createHotRodServers(3, defaultConfiguration);
 
       ConfigurationBuilder builder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.REPL_SYNC, false));
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "infinispan")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User");
 
       for (EmbeddedCacheManager cm : cacheManagers) {
          cm.defineConfiguration(TEST_CACHE, builder.build());

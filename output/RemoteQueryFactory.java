@@ -1,11 +1,10 @@
 package org.infinispan.client.hotrod.impl.query;
 
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
-import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
+import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.ProtoStreamMarshaller;
 import org.infinispan.protostream.SerializationContext;
-import org.infinispan.query.dsl.IndexedQueryMode;
 import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.QueryBuilder;
 import org.infinispan.query.dsl.impl.BaseQueryFactory;
@@ -18,10 +17,10 @@ import org.infinispan.query.remote.client.impl.QueryRequest;
  */
 public final class RemoteQueryFactory extends BaseQueryFactory {
 
-   private final RemoteCacheImpl<?, ?> cache;
+   private final InternalRemoteCache<?, ?> cache;
    private final SerializationContext serializationContext;
 
-   public RemoteQueryFactory(RemoteCacheImpl<?, ?> cache) {
+   public RemoteQueryFactory(InternalRemoteCache<?, ?> cache) {
       this.cache = cache;
       Marshaller marshaller = cache.getRemoteCacheManager().getMarshaller();
       // we may or may not use Protobuf
@@ -40,13 +39,8 @@ public final class RemoteQueryFactory extends BaseQueryFactory {
    }
 
    @Override
-   public Query create(String queryString) {
-      return new RemoteQuery(this, cache, serializationContext, queryString, IndexedQueryMode.FETCH);
-   }
-
-   @Override
-   public Query create(String queryString, IndexedQueryMode queryMode) {
-      return new RemoteQuery(this, cache, serializationContext, queryString, queryMode);
+   public <T> Query<T> create(String queryString) {
+      return new RemoteQuery<>(this, cache, serializationContext, queryString);
    }
 
    @Override

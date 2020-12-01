@@ -46,7 +46,7 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
 
    @Override
    protected String parameters() {
-      return "storageType-" + storageType;
+      return "[storageType-" + storageType + "]";
    }
 
    @Override
@@ -54,6 +54,16 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
       org.infinispan.configuration.cache.ConfigurationBuilder cb = hotRodCacheConfiguration();
       cb.memory().storageType(storageType);
       return TestCacheManagerFactory.createCacheManager(cb);
+   }
+
+   @Override
+   protected void teardown() {
+      if (assertClient != null) {
+         assertClient.stop();
+         assertClient = null;
+      }
+
+      super.teardown();
    }
 
    @Override
@@ -96,12 +106,12 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
          newAssertClient.expectNoNearEvents();
          newAssertClient.get(1, "one").expectNearGetValue(1, null).expectNearPutIfAbsent(1, "one");
          newAssertClient.get(2, "two").expectNearGetValue(2, null).expectNearPutIfAbsent(2, "two");
-         newAssertClient.remove(1).expectNearRemove(1);
-         newAssertClient.remove(2).expectNearRemove(2);
+         newAssertClient.remove(1).expectNearRemove(1, assertClient);
+         newAssertClient.remove(2).expectNearRemove(2, assertClient);
       } finally {
          newAssertClient.stop();
       }
-      assertClient.resetEvents();
+      assertClient.expectNoNearEvents();
    }
 
    public void testGetNearCache() {
@@ -122,16 +132,6 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
       assertClient.getAsync(1, "v1").expectNearGetValue(1, "v1");
       assertClient.removeAsync(1).expectNearRemove(1);
       assertClient.getAsync(1, null).expectNearGetNull(1);
-   }
-
-   public void testGetVersionedNearCache() {
-      assertClient.expectNoNearEvents();
-      assertClient.getVersioned(1, null).expectNearGetNull(1);
-      assertClient.put(1, "v1").expectNearPreemptiveRemove(1);
-      assertClient.getVersioned(1, "v1").expectNearGetNull(1).expectNearPutIfAbsent(1, "v1");
-      assertClient.getVersioned(1, "v1").expectNearGetValueVersion(1, "v1");
-      assertClient.remove(1).expectNearRemove(1);
-      assertClient.getVersioned(1, null).expectNearGetNull(1);
    }
 
    public void testGetWithMetadataNearCache() {
@@ -223,6 +223,22 @@ public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
       RemoteCacheManager manager = new RemoteCacheManager(builder.build());
       try {
          RemoteCache nearcache = manager.getCache("nearcache");
+         assertTrue(nearcache instanceof InvalidatedNearRemoteCache);
+         RemoteCache cache = manager.getCache();
+         assertFalse(cache instanceof InvalidatedNearRemoteCache);
+      } finally {
+         HotRodClientTestingUtil.killRemoteCacheManager(manager);
+      }
+   }
+
+   public void testNearCachePerCache() {
+      cacheManager.defineConfiguration("closecache", new org.infinispan.configuration.cache.ConfigurationBuilder().build());
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
+      builder.addServer().host("127.0.0.1").port(hotrodServer.getPort());
+      builder.remoteCache("closecache").nearCacheMode(NearCacheMode.INVALIDATED);
+      RemoteCacheManager manager = new RemoteCacheManager(builder.build());
+      try {
+         RemoteCache nearcache = manager.getCache("closecache");
          assertTrue(nearcache instanceof InvalidatedNearRemoteCache);
          RemoteCache cache = manager.getCache();
          assertFalse(cache instanceof InvalidatedNearRemoteCache);

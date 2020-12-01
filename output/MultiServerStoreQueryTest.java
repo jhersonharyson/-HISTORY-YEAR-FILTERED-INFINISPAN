@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.query;
 
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
@@ -13,7 +14,6 @@ import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.cache.StorageType;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.persistence.dummy.DummyInMemoryStoreConfigurationBuilder;
@@ -21,7 +21,6 @@ import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.annotations.ProtoDoc;
 import org.infinispan.protostream.annotations.ProtoField;
 import org.infinispan.protostream.annotations.ProtoSchemaBuilder;
-import org.infinispan.query.indexmanager.InfinispanIndexManager;
 import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
 import org.testng.annotations.Test;
 
@@ -35,13 +34,9 @@ public class MultiServerStoreQueryTest extends MultiHotRodServersTest {
    private static final boolean USE_PERSISTENCE = true;
 
    private static final String USER_CACHE = "news";
-   private static final String LUCENE_LOCKING_CACHE = "LuceneIndexesLocking_news";
-   private static final String LUCENE_METADATA_CACHE = "LuceneIndexesMetadata_news";
-   private static final String LUCENE_DATA_CACHE = "LuceneIndexesData_news";
 
    private RemoteCache<Object, Object> userCache;
 
-   private StorageType storageType;
    private long evictionSize = -1;
 
    @Override
@@ -60,19 +55,17 @@ public class MultiServerStoreQueryTest extends MultiHotRodServersTest {
    }
 
    public Object[] factory() {
-      return new Object[] {
+      return new Object[]{
             new MultiServerStoreQueryTest().storageType(StorageType.OFF_HEAP),
-            // Disabled until https://issues.jboss.org/browse/ISPN-10700 is fixed
-//            new MultiServerStoreQueryTest().storageType(StorageType.BINARY),
+            new MultiServerStoreQueryTest().storageType(StorageType.BINARY),
             new MultiServerStoreQueryTest().storageType(StorageType.OBJECT),
             new MultiServerStoreQueryTest().storageType(StorageType.OFF_HEAP).evictionSize(1),
-            // Disabled until https://issues.jboss.org/browse/ISPN-10700 is fixed
-//            new MultiServerStoreQueryTest().storageType(StorageType.BINARY).evictionSize(1),
+            new MultiServerStoreQueryTest().storageType(StorageType.BINARY).evictionSize(1),
             new MultiServerStoreQueryTest().storageType(StorageType.OBJECT).evictionSize(1),
       };
    }
 
-   MultiServerStoreQueryTest storageType(StorageType storageType) {
+   public MultiServerStoreQueryTest storageType(StorageType storageType) {
       this.storageType = storageType;
       return this;
    }
@@ -96,16 +89,12 @@ public class MultiServerStoreQueryTest extends MultiHotRodServersTest {
 
    public Configuration buildIndexedConfig(String storeName) {
       ConfigurationBuilder builder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
-      builder.indexing().index(Index.PRIMARY_OWNER)
-            .addProperty("default.indexmanager", InfinispanIndexManager.class.getName())
-            .addProperty("default.worker.execution", "async")
-            .addProperty("default.index_flush_interval", "500")
-            .addProperty("default.indexwriter.merge_factor", "30")
-            .addProperty("default.indexwriter.merge_max_size", "1024")
-            .addProperty("default.indexwriter.ram_buffer_size", "256")
-            .addProperty("default.locking_cachename", LUCENE_LOCKING_CACHE)
-            .addProperty("default.data_cachename", LUCENE_DATA_CACHE)
-            .addProperty("default.metadata_cachename", LUCENE_METADATA_CACHE);
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .writer().commitInterval(500).ramBufferSize(256)
+            .merge().factor(30).maxSize(1024)
+            .addIndexedEntity("News");
+
       builder.memory().storageType(storageType);
       if (evictionSize > 0) {
          builder.memory().size(evictionSize);
@@ -121,20 +110,7 @@ public class MultiServerStoreQueryTest extends MultiHotRodServersTest {
       ConfigurationBuilder defaultConfiguration = new ConfigurationBuilder();
       createHotRodServers(NODES, defaultConfiguration);
 
-      for (int i = 0; i < cacheManagers.size(); i++) {
-         EmbeddedCacheManager cm = cacheManagers.get(i);
-         cm.defineConfiguration(USER_CACHE, buildIndexedConfig("News-" + i));
-
-         cm.defineConfiguration(LUCENE_LOCKING_CACHE, getLockCacheConfig());
-         cm.defineConfiguration(LUCENE_METADATA_CACHE, getLuceneCacheConfig(LUCENE_METADATA_CACHE + "_" + i));
-         cm.defineConfiguration(LUCENE_DATA_CACHE, getLuceneCacheConfig(LUCENE_DATA_CACHE + "_" + i));
-         cm.getCache(USER_CACHE);
-      }
-
-      waitForClusterToForm(USER_CACHE);
-
       RemoteCacheManager remoteCacheManager = client(0);
-      userCache = remoteCacheManager.getCache(USER_CACHE);
 
       //initialize client-side serialization context
       SerializationContext serializationContext = MarshallerUtil.getSerializationContext(remoteCacheManager);
@@ -149,6 +125,15 @@ public class MultiServerStoreQueryTest extends MultiHotRodServersTest {
       metadataCache.put("news.proto", protoFile);
       assertFalse(metadataCache.containsKey(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX));
 
+      for (int i = 0; i < cacheManagers.size(); i++) {
+         EmbeddedCacheManager cm = cacheManagers.get(i);
+         cm.defineConfiguration(USER_CACHE, buildIndexedConfig("News-" + i));
+         cm.getCache(USER_CACHE);
+      }
+
+      waitForClusterToForm(USER_CACHE);
+
+      userCache = remoteCacheManager.getCache(USER_CACHE);
    }
 
    public void testIndexing() {
@@ -183,7 +168,6 @@ public class MultiServerStoreQueryTest extends MultiHotRodServersTest {
       assertEquals(news1, userCache.get(newsKey1));
       assertEquals(news2, userCache.get(newsKey2));
    }
-
 }
 
 class NewsKey {

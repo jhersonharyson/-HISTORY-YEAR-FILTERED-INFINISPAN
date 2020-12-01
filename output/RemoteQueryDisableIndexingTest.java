@@ -2,14 +2,13 @@ package org.infinispan.client.hotrod.query;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertNotNull;
-import static org.testng.AssertJUnit.assertTrue;
 
 import java.util.List;
 
-import org.hibernate.search.spi.SearchIntegrator;
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
@@ -19,16 +18,15 @@ import org.infinispan.client.hotrod.query.testdomain.protobuf.ModelFactoryPB;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.TestDomainSCI;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.QueryFactory;
 import org.infinispan.query.dsl.embedded.AbstractQueryDslTest;
 import org.infinispan.query.dsl.embedded.testdomain.ModelFactory;
 import org.infinispan.query.dsl.embedded.testdomain.NotIndexed;
-import org.infinispan.query.remote.impl.ProgrammaticSearchMappingProviderImpl;
-import org.infinispan.query.remote.impl.indexing.ProtobufValueWrapper;
+import org.infinispan.search.mapper.mapping.SearchMapping;
 import org.infinispan.server.hotrod.HotRodServer;
+import org.infinispan.test.TestingUtil;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -95,36 +93,38 @@ public class RemoteQueryDisableIndexingTest extends AbstractQueryDslTest {
 
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = hotRodCacheConfiguration();
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User")
+            .addIndexedEntity("sample_bank_account.Account")
+            .addIndexedEntity("sample_bank_account.Transaction");
       return builder;
    }
 
    @AfterClass(alwaysRun = true)
    public void release() {
       killRemoteCacheManager(remoteCacheManager);
+      remoteCacheManager = null;
       killServers(hotRodServer);
+      hotRodServer = null;
    }
 
    public void testEmptyIndexIsPresent() {
-      SearchIntegrator searchIntegrator = org.infinispan.query.Search.getSearchManager(cache).unwrap(SearchIntegrator.class);
+      SearchMapping searchMapping = TestingUtil.extractComponent(cache, SearchMapping.class);
 
       // we have indexing for remote query!
-      assertTrue(searchIntegrator.getIndexBindings().containsKey(ProtobufValueWrapper.INDEXING_TYPE));
+      assertNotNull(searchMapping.indexedEntity("sample_bank_account.User"));
+      assertNotNull(searchMapping.indexedEntity("sample_bank_account.Account"));
+      assertNotNull(searchMapping.indexedEntity("sample_bank_account.Transaction"));
 
-      // we have an index for this cache
-      String indexName = ProgrammaticSearchMappingProviderImpl.getIndexName(cache.getName());
-      assertNotNull(searchIntegrator.getIndexManager(indexName));
-
-      // index must be empty
-      assertEquals(0, searchIntegrator.getStatistics().getNumberOfIndexedEntities(ProtobufValueWrapper.class.getName()));
+      // we have some indexes for this cache
+      assertEquals(3, searchMapping.allIndexedEntities().size());
    }
 
    public void testEqNonIndexedType() {
-      Query q = getQueryFactory().create("from sample_bank_account.NotIndexed where notIndexedField = 'testing 123'");
+      Query<NotIndexed> q = getQueryFactory().create("from sample_bank_account.NotIndexed where notIndexedField = 'testing 123'");
 
-      List<NotIndexed> list = q.list();
+      List<NotIndexed> list = q.execute().list();
       assertEquals(1, list.size());
       assertEquals("testing 123", list.get(0).notIndexedField);
    }

@@ -4,7 +4,6 @@ import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withClie
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
-import java.io.Serializable;
 import java.util.Set;
 
 import org.infinispan.client.hotrod.RemoteCache;
@@ -96,7 +95,7 @@ public class ClientEventsTest extends SingleHotRodServerTest {
          l.expectOnlyCreatedEvent(1);
          remote.replaceWithVersion(1, "one", 0);
          l.expectNoEvents();
-         VersionedValue<?> versioned = remote.getVersioned(1);
+         VersionedValue<?> versioned = remote.getWithMetadata(1);
          remote.replaceWithVersion(1, "one", versioned.getVersion());
          l.expectOnlyModifiedEvent(1);
       });
@@ -112,7 +111,7 @@ public class ClientEventsTest extends SingleHotRodServerTest {
          l.expectOnlyCreatedEvent(1);
          remote.removeWithVersion(1, 0);
          l.expectNoEvents();
-         VersionedValue<?> versioned = remote.getVersioned(1);
+         VersionedValue<?> versioned = remote.getWithMetadata(1);
          remote.removeWithVersion(1, versioned.getVersion());
          l.expectOnlyRemovedEvent(1);
       });
@@ -227,7 +226,7 @@ public class ClientEventsTest extends SingleHotRodServerTest {
       }
    }
 
-   static final class CustomKey implements Serializable {
+   static final class CustomKey {
       @ProtoField(number = 1, defaultValue = "0")
       final int id;
 

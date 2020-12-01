@@ -1,7 +1,10 @@
 package org.infinispan.client.hotrod.counter;
 
+import static org.infinispan.commons.test.CommonsTestingUtil.tmpDirectory;
+
 import java.io.File;
 import java.lang.reflect.Method;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -12,7 +15,6 @@ import org.infinispan.counter.api.CounterManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.counter.CounterManagerTestStrategy;
 import org.infinispan.server.hotrod.counter.impl.CounterManagerImplTestStrategy;
-import org.infinispan.test.TestingUtil;
 import org.infinispan.util.logging.Log;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
@@ -27,9 +29,9 @@ import org.testng.annotations.Test;
 @Test(groups = "functional", testName = "client.hotrod.counter.RemoteCounterManagerTest")
 public class RemoteCounterManagerTest extends AbstractCounterTest implements CounterManagerTestStrategy {
 
-   private static final String PERSISTENT_LOCATION = TestingUtil.tmpDirectory("RemoteCounterManagerTest");
-   private static final String TMP_LOCATION = PERSISTENT_LOCATION + File.separator + "tmp";
-   private static final String SHARED_LOCATION = PERSISTENT_LOCATION + File.separator + "shared";
+   private static final String PERSISTENT_LOCATION = tmpDirectory("RemoteCounterManagerTest");
+   private static final String TMP_LOCATION = Paths.get(PERSISTENT_LOCATION, "tmp").toString();
+   private static final String SHARED_LOCATION = Paths.get(PERSISTENT_LOCATION,"shared").toString();
    private final CounterManagerTestStrategy strategy;
 
 
@@ -99,7 +101,7 @@ public class RemoteCounterManagerTest extends AbstractCounterTest implements Cou
       char id = 'A';
       id += cacheManagers.size();
       builder.globalState().enable()
-            .persistentLocation(PERSISTENT_LOCATION + File.separator + id)
+            .persistentLocation(Paths.get(PERSISTENT_LOCATION, Character.toString(id)).toString())
             .temporaryLocation(TMP_LOCATION)
             .sharedPersistentLocation(SHARED_LOCATION);
    }

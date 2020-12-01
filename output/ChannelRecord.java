@@ -20,12 +20,12 @@ import io.netty.util.concurrent.GenericFutureListener;
  */
 public class ChannelRecord extends CompletableFuture<Channel> implements GenericFutureListener<ChannelFuture> {
    private static final Log log = LogFactory.getLog(ChannelRecord.class);
-   private static final boolean trace = log.isTraceEnabled();
 
    static AttributeKey<ChannelRecord> KEY = AttributeKey.newInstance("activation");
 
    private final SocketAddress unresolvedAddress;
    private final ChannelPool channelPool;
+   private boolean closed = false;
    private boolean acquired = true;
 
    ChannelRecord(SocketAddress unresolvedAddress, ChannelPool channelPool) {
@@ -41,10 +41,6 @@ public class ChannelRecord extends CompletableFuture<Channel> implements Generic
       return unresolvedAddress;
    }
 
-   public ChannelPool getChannelPool() {
-      return channelPool;
-   }
-
    @Override
    public boolean complete(Channel channel) {
       channel.closeFuture().addListener(this);
@@ -53,27 +49,38 @@ public class ChannelRecord extends CompletableFuture<Channel> implements Generic
 
    @Override
    public void operationComplete(ChannelFuture future) throws Exception {
-      if (trace) {
-         log.tracef("Closing channel %s", get());
+      if (log.isTraceEnabled()) {
          if (!future.isSuccess()) {
             log.tracef(future.cause(), "Channel %s is closed, see exception for details", get());
          }
       }
-      // We need to release the channel to update its internal channel count
-      channelPool.release(future.channel(), this);
+      channelPool.releaseClosedChannel(future.channel(), this);
    }
 
-   void setAcquired() {
+   synchronized void setAcquired() {
       assert !acquired;
       acquired = true;
    }
 
-   void setIdle() {
-      assert acquired;
-      acquired = false;
+   public synchronized boolean isIdle() {
+      return !acquired;
    }
 
-   public boolean isIdle() {
+   public synchronized boolean setIdleAndIsClosed() {
+      assert acquired;
+      acquired = false;
+
+      return closed;
+   }
+
+   public synchronized boolean closeAndWasIdle() {
+      assert !closed;
+      closed = true;
+
       return !acquired;
+   }
+
+   public void release(Channel channel) {
+      channelPool.release(channel, this);
    }
 }

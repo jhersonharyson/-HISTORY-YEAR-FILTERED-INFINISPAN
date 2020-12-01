@@ -13,6 +13,7 @@ import org.infinispan.commons.util.CloseableIteratorCollection;
 import org.infinispan.commons.util.CloseableIteratorSet;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.query.dsl.Query;
+import org.reactivestreams.Publisher;
 
 /**
  * Provides remote reference to a Hot Rod server/cluster. It implements {@link org.infinispan.Cache}, but given its
@@ -29,12 +30,7 @@ import org.infinispan.query.dsl.Query;
  * is returned instead. E.g. {@link java.util.Map#put(Object, Object)} returns the previous value associated to the
  * supplied key. In case of RemoteCache, this returns null.
  * <p/>
- * <b>Synthetic operations</b>: aggregate operations are being implemented based on other Hot Rod operations. E.g. all
- * the {@link java.util.Map#putAll(java.util.Map)} is implemented through multiple individual puts. This means that the
- * these operations are not atomic and that they are costly, e.g. as the number of network round-trips is not one, but
- * the size of the added map. All these synthetic operations are documented as such.
- * <p/>
- * <b>changing default behavior through {@link org.infinispan.client.hotrod.Flag}s</b>: it is possible to change the
+ * <b>Changing default behavior through {@link org.infinispan.client.hotrod.Flag}s</b>: it is possible to change the
  * default cache behaviour by using flags on an per invocation basis. E.g.
  * <pre>
  *      RemoteCache cache = getRemoteCache();
@@ -72,7 +68,7 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     *
     * @return true if the entry has been removed
     * @see VersionedValue
-    * @see #getVersioned(Object)
+    * @see #getWithMetadata(Object)
     */
    boolean removeWithVersion(K key, long version);
 
@@ -138,7 +134,7 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * @param version numeric version that should match the one in the server
     *                for the operation to succeed
     * @return true if the value has been replaced
-    * @see #getVersioned(Object)
+    * @see #getWithMetadata(Object)
     * @see VersionedValue
     */
    boolean replaceWithVersion(K key, V newValue, long version);
@@ -204,12 +200,19 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CompletableFuture<Boolean> replaceWithVersionAsync(K key, V newValue, long version, int lifespanSeconds, int maxIdleSeconds);
 
    /**
-    * @see #retrieveEntries(String, Object[], java.util.Set, int)
+    * @see #replaceWithVersion(Object, Object, long)
     */
-   CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, Set<Integer> segments, int batchSize);
+   CompletableFuture<Boolean> replaceWithVersionAsync(K key, V newValue, long version, long lifespanSeconds, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit);
 
    /**
-    * Retrieve entries from the server
+    * @see #retrieveEntries(String, Object[], java.util.Set, int)
+    */
+   default CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, Set<Integer> segments, int batchSize) {
+      return retrieveEntries(filterConverterFactory, null, segments, batchSize);
+   }
+
+   /**
+    * Retrieve entries from the server.
     *
     * @param filterConverterFactory Factory name for the KeyValueFilterConverter or null for no filtering.
     * @param filterConverterParams  Parameters to the KeyValueFilterConverter
@@ -220,9 +223,25 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, Object[] filterConverterParams, Set<Integer> segments, int batchSize);
 
    /**
+    * Publishes the entries from the server in a non blocking fashion.
+    * <p>
+    * Any subscriber that subscribes to the returned Publisher must not block. It is therefore recommended to offload
+    * any blocking or long running operations to a different thread and not use the invoking one. Failure to do so
+    * may cause concurrent operations to stall.
+    * @param filterConverterFactory Factory name for the KeyValueFilterConverter or null for no filtering.
+    * @param filterConverterParams  Parameters to the KeyValueFilterConverter
+    * @param segments               The segments to utilize. If null all segments will be utilized. An empty set will filter out all entries.
+    * @param batchSize              The number of entries transferred from the server at a time.
+    * @return Publisher for the entries
+    */
+   <E> Publisher<Entry<K, E>> publishEntries(String filterConverterFactory, Object[] filterConverterParams, Set<Integer> segments, int batchSize);
+
+   /**
     * @see #retrieveEntries(String, Object[], java.util.Set, int)
     */
-   CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, int batchSize);
+   default CloseableIterator<Entry<Object, Object>> retrieveEntries(String filterConverterFactory, int batchSize) {
+      return retrieveEntries(filterConverterFactory, null, null, batchSize);
+   }
 
    /**
     * Retrieve entries from the server matching a query.
@@ -232,7 +251,20 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * @param batchSize   The number of entries transferred from the server at a time.
     * @return {@link CloseableIterator}
     */
-   CloseableIterator<Entry<Object, Object>> retrieveEntriesByQuery(Query filterQuery, Set<Integer> segments, int batchSize);
+   CloseableIterator<Entry<Object, Object>> retrieveEntriesByQuery(Query<?> filterQuery, Set<Integer> segments, int batchSize);
+
+   /**
+    * Publish entries from the server matching a query.
+    * <p>
+    * Any subscriber that subscribes to the returned Publisher must not block. It is therefore recommended to offload
+    * any blocking or long running operations to a different thread and not use the invoking one. Failure to do so
+    * may cause concurrent operations to stall.
+    * @param filterQuery {@link Query}
+    * @param segments    The segments to utilize. If null all segments will be utilized. An empty set will filter out all entries.
+    * @param batchSize   The number of entries transferred from the server at a time.
+    * @return Publisher containing matching entries
+    */
+   <E> Publisher<Entry<K, E>> publishEntriesByQuery(Query<?> filterQuery, Set<Integer> segments, int batchSize);
 
    /**
     * Retrieve entries with metadata information
@@ -240,12 +272,16 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CloseableIterator<Entry<Object, MetadataValue<Object>>> retrieveEntriesWithMetadata(Set<Integer> segments, int batchSize);
 
    /**
-    * Returns the {@link VersionedValue} associated to the supplied key param, or null if it doesn't exist.
-    *
-    * @deprecated Use {@link #getWithMetadata(Object)} instead
+    * Publish entries with metadata information
+    * <p>
+    * Any subscriber that subscribes to the returned Publisher must not block. It is therefore recommended to offload
+    * any blocking or long running operations to a different thread and not use the invoking one. Failure to do so
+    * may cause concurrent operations to stall.
+    * @param segments    The segments to utilize. If null all segments will be utilized. An empty set will filter out all entries.
+    * @param batchSize   The number of entries transferred from the server at a time.
+    * @return Publisher containing entries along with metadata
     */
-   @Deprecated
-   VersionedValue<V> getVersioned(K key);
+   Publisher<Entry<K, MetadataValue<V>>> publishEntriesWithMetadata(Set<Integer> segments, int batchSize);
 
    /**
     * Returns the {@link MetadataValue} associated to the supplied key param, or null if it doesn't exist.
@@ -273,7 +309,9 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * returned from it to be closed. Failure to do so may cause additional resources to not be freed.
     */
    @Override
-   CloseableIteratorSet<K> keySet();
+   default CloseableIteratorSet<K> keySet() {
+      return keySet(null);
+   }
 
    /**
     * This method is identical to {@link #keySet()} except that it will only return keys that map to the given segments.
@@ -303,7 +341,9 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * returned from it to be closed. Failure to do so may cause additional resources to not be freed.
     */
    @Override
-   CloseableIteratorCollection<V> values();
+   default CloseableIteratorCollection<V> values() {
+      return values(null);
+   }
 
    /**
     * This method is identical to {@link #values()} except that it will only return values that map to the given segments.
@@ -337,7 +377,9 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * returned from it to be closed. Failure to do so may cause additional resources to not be freed.
     */
    @Override
-   CloseableIteratorSet<Entry<K, V>> entrySet();
+   default CloseableIteratorSet<Entry<K, V>> entrySet() {
+      return entrySet(null);
+   }
 
    /**
     * This method is identical to {@link #entrySet()} except that it will only return entries that map to the given segments.
@@ -352,15 +394,13 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CloseableIteratorSet<Entry<K, V>> entrySet(IntSet segments);
 
    /**
-    * Synthetic operation. The client iterates over the set of keys and calls put for each one of them. This results in
-    * operation not being atomic (if a failure happens after few puts it is not rolled back) and costly (for each key in
-    * the parameter map a remote call is performed).
+    * Adds or overrides each specified entry in the remote cache. This operation provides better performance than calling put() for each entry.
     */
    @Override
    void putAll(Map<? extends K, ? extends V> map, long lifespan, TimeUnit unit);
 
    /**
-    * Synthetic operation.
+    * Adds or overrides each specified entry in the remote cache. This operation provides better performance than calling put() for each entry.
     *
     * @see #putAll(java.util.Map, long, java.util.concurrent.TimeUnit)
     */
@@ -368,7 +408,7 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    void putAll(Map<? extends K, ? extends V> map, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit);
 
    /**
-    * Synthetic operation.
+    * Adds or overrides each specified entry in the remote cache. This operation provides better performance than calling put() for each entry.
     *
     * @see #putAll(java.util.Map, long, java.util.concurrent.TimeUnit)
     */
@@ -376,7 +416,7 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CompletableFuture<Void> putAllAsync(Map<? extends K, ? extends V> data);
 
    /**
-    * Synthetic operation.
+    * Adds or overrides each specified entry in the remote cache. This operation provides better performance than calling put() for each entry.
     *
     * @see #putAll(java.util.Map, long, java.util.concurrent.TimeUnit)
     */
@@ -384,7 +424,7 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CompletableFuture<Void> putAllAsync(Map<? extends K, ? extends V> data, long lifespan, TimeUnit unit);
 
    /**
-    * Synthetic operation.
+    * Adds or overrides each specified entry in the remote cache. This operation provides better performance than calling put() for each entry.
     *
     * @see #putAll(java.util.Map, long, java.util.concurrent.TimeUnit)
     */
@@ -392,7 +432,7 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    CompletableFuture<Void> putAllAsync(Map<? extends K, ? extends V> data, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit);
 
    /**
-    * Synthetic operation.
+    * Adds or overrides each specified entry in the remote cache. This operation provides better performance than calling put() for each entry.
     *
     * @see #putAll(java.util.Map, long, java.util.concurrent.TimeUnit)
     */
@@ -477,16 +517,16 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
    Set<Object> getListeners();
 
    /**
-    * Executes a remote script passing a set of named parameters
+    * Executes a remote task passing a set of named parameters
     */
-   <T> T execute(String scriptName, Map<String, ?> params);
+   <T> T execute(String taskName, Map<String, ?> params);
 
    /**
-    * Executes a remote script passing a set of named parameters, hinting that the script should be executed
+    * Executes a remote task passing a set of named parameters, hinting that the task should be executed
     * on the server that is expected to store given key. The key itself is not transferred to the server.
     */
-   default <T> T execute(String scriptName, Map<String, ?> params, Object key) {
-      return execute(scriptName, params);
+   default <T> T execute(String taskName, Map<String, ?> params, Object key) {
+      return execute(taskName, params);
    }
 
    /**

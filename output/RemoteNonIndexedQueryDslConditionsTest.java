@@ -15,6 +15,7 @@ import org.testng.annotations.Test;
 @Test(groups = "functional", testName = "client.hotrod.query.RemoteNonIndexedQueryDslConditionsTest")
 public class RemoteNonIndexedQueryDslConditionsTest extends RemoteQueryDslConditionsTest {
 
+   @Override
    protected ConfigurationBuilder getConfigurationBuilder() {
       return hotRodCacheConfiguration();
    }
@@ -22,7 +23,7 @@ public class RemoteNonIndexedQueryDslConditionsTest extends RemoteQueryDslCondit
    @Test(expectedExceptions = IllegalStateException.class, expectedExceptionsMessageRegExp = "Indexing was not enabled on cache.*")
    @Override
    public void testIndexPresence() {
-      org.infinispan.query.Search.getSearchManager(getEmbeddedCache());
+      org.infinispan.query.Search.getIndexer(getEmbeddedCache());
    }
 
    @Test(expectedExceptions = HotRodClientException.class, expectedExceptionsMessageRegExp = "java.lang.IllegalStateException: The cache must be indexed in order to use full-text queries.")

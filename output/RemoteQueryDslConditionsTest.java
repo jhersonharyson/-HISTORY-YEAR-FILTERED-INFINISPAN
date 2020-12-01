@@ -2,6 +2,7 @@ package org.infinispan.client.hotrod.query;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemoteCacheManager;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.query.dsl.Expression.avg;
 import static org.infinispan.query.dsl.Expression.count;
 import static org.infinispan.query.dsl.Expression.max;
@@ -16,7 +17,6 @@ import static org.testng.AssertJUnit.assertTrue;
 import java.io.IOException;
 import java.util.List;
 
-import org.hibernate.search.spi.SearchIntegrator;
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.RemoteCache;
@@ -30,7 +30,6 @@ import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.TestDo
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.QueryFactory;
@@ -38,9 +37,9 @@ import org.infinispan.query.dsl.SortOrder;
 import org.infinispan.query.dsl.embedded.QueryDslConditionsTest;
 import org.infinispan.query.dsl.embedded.testdomain.Account;
 import org.infinispan.query.dsl.embedded.testdomain.ModelFactory;
-import org.infinispan.query.remote.impl.ProgrammaticSearchMappingProviderImpl;
-import org.infinispan.query.remote.impl.indexing.ProtobufValueWrapper;
+import org.infinispan.search.mapper.mapping.SearchMapping;
 import org.infinispan.server.hotrod.HotRodServer;
+import org.infinispan.test.TestingUtil;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
@@ -109,24 +108,33 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
 
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = hotRodCacheConfiguration();
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User")
+            .addIndexedEntity("sample_bank_account.Account")
+            .addIndexedEntity("sample_bank_account.Transaction");
       return builder;
    }
 
    @AfterClass(alwaysRun = true)
    public void release() {
       killRemoteCacheManager(remoteCacheManager);
+      remoteCacheManager = null;
       killServers(hotRodServer);
+      hotRodServer = null;
    }
 
    @Override
    public void testIndexPresence() {
-      SearchIntegrator searchIntegrator = org.infinispan.query.Search.getSearchManager(cache).unwrap(SearchIntegrator.class);
+      SearchMapping searchMapping = TestingUtil.extractComponent(cache, SearchMapping.class);
 
-      assertTrue(searchIntegrator.getIndexBindings().containsKey(ProtobufValueWrapper.INDEXING_TYPE));
-      assertNotNull(searchIntegrator.getIndexManager(ProgrammaticSearchMappingProviderImpl.getIndexName(cache.getName())));
+      // we have indexing for remote query!
+      assertNotNull(searchMapping.indexedEntity("sample_bank_account.User"));
+      assertNotNull(searchMapping.indexedEntity("sample_bank_account.Account"));
+      assertNotNull(searchMapping.indexedEntity("sample_bank_account.Transaction"));
+
+      // we have some indexes for this cache
+      assertEquals(3, searchMapping.allIndexedEntities().size());
    }
 
    @Override
@@ -157,12 +165,12 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
       QueryFactory qf = getQueryFactory();
 
       // all the transactions that happened in January 2013, projected by date field only
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select("date")
             .having("date").between(makeDate("2013-01-01"), makeDate("2013-01-31"))
             .build();
 
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
       assertEquals(4, list.size());
       assertEquals(1, list.get(0).length);
       assertEquals(1, list.get(1).length);
@@ -179,9 +187,9 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    public void testDefaultValue() {
       QueryFactory qf = getQueryFactory();
 
-      Query q = qf.from(getModelFactory().getAccountImplClass()).orderBy("description", SortOrder.ASC).build();
+      Query<Account> q = qf.from(getModelFactory().getAccountImplClass()).orderBy("description", SortOrder.ASC).build();
 
-      List<Account> list = q.list();
+      List<Account> list = q.execute().list();
       assertEquals(3, list.size());
       assertEquals("Checking account", list.get(0).getDescription());
    }
@@ -219,13 +227,13 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    public void testDateGrouping1() throws Exception {
       QueryFactory qf = getQueryFactory();
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select("date")
             .having("date").between(makeDate("2013-02-15"), makeDate("2013-03-15"))
             .groupBy("date")
             .build();
 
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
       assertEquals(1, list.size());
       assertEquals(1, list.get(0).length);
       assertEquals(makeDate("2013-02-27").getTime(), list.get(0)[0]);
@@ -238,13 +246,13 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    public void testDateGrouping2() throws Exception {
       QueryFactory qf = getQueryFactory();
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select(count("date"), min("date"))
             .having("description").eq("Hotel")
             .groupBy("id")
             .build();
 
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
       assertEquals(1, list.size());
       assertEquals(2, list.get(0).length);
       assertEquals(1L, list.get(0)[0]);
@@ -258,13 +266,13 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    public void testDateGrouping3() throws Exception {
       QueryFactory qf = getQueryFactory();
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select(min("date"), count("date"))
             .having("description").eq("Hotel")
             .groupBy("id")
             .build();
 
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
       assertEquals(1, list.size());
       assertEquals(2, list.get(0).length);
       assertEquals(makeDate("2013-02-27").getTime(), list.get(0)[0]);
@@ -279,11 +287,11 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    public void testDuplicateDateProjection() throws Exception {
       QueryFactory qf = getQueryFactory();
 
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select("id", "date", "date")
             .having("description").eq("Hotel")
             .build();
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
 
       assertEquals(1, list.size());
       assertEquals(3, list.get(0).length);
@@ -313,7 +321,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    public void testComplexQuery() throws Exception {
       QueryFactory qf = getQueryFactory();
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select(avg("amount"), sum("amount"), count("date"), min("date"), max("accountId"))
             .having("isDebit").eq(param("param"))
             .orderBy(avg("amount"), SortOrder.DESC).orderBy(count("date"), SortOrder.DESC)
@@ -322,7 +330,7 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
 
       q.setParameter("param", true);
 
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
       assertEquals(1, list.size());
       assertEquals(5, list.get(0).length);
       assertEquals(143.50909d, (Double) list.get(0)[0], 0.0001d);
@@ -340,12 +348,12 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    public void testDateFilteringWithGroupBy() throws Exception {
       QueryFactory qf = getQueryFactory();
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select("date")
             .having("date").between(makeDate("2013-02-15"), makeDate("2013-03-15"))
             .groupBy("date")
             .build();
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
 
       assertEquals(1, list.size());
       assertEquals(1, list.get(0).length);
@@ -360,12 +368,12 @@ public class RemoteQueryDslConditionsTest extends QueryDslConditionsTest {
    @Override
    public void testAggregateDate() throws Exception {
       QueryFactory qf = getQueryFactory();
-      Query q = qf.from(getModelFactory().getTransactionImplClass())
+      Query<Object[]> q = qf.from(getModelFactory().getTransactionImplClass())
             .select(count("date"), min("date"))
             .having("description").eq("Hotel")
             .groupBy("id")
             .build();
-      List<Object[]> list = q.list();
+      List<Object[]> list = q.execute().list();
 
       assertEquals(1, list.size());
       assertEquals(2, list.get(0).length);

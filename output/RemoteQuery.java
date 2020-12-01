@@ -5,14 +5,20 @@ import static org.infinispan.client.hotrod.impl.Util.await;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
+import java.util.concurrent.TimeUnit;
 
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
-import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
+import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.impl.operations.QueryOperation;
+import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.commons.util.CloseableIterator;
+import org.infinispan.commons.util.Closeables;
 import org.infinispan.protostream.SerializationContext;
-import org.infinispan.query.dsl.IndexedQueryMode;
 import org.infinispan.query.dsl.QueryFactory;
+import org.infinispan.query.dsl.QueryResult;
 import org.infinispan.query.dsl.impl.BaseQuery;
 import org.infinispan.query.remote.client.impl.BaseQueryResponse;
 
@@ -20,61 +26,75 @@ import org.infinispan.query.remote.client.impl.BaseQueryResponse;
  * @author anistor@redhat.com
  * @since 6.0
  */
-public final class RemoteQuery extends BaseQuery {
+public final class RemoteQuery<T> extends BaseQuery<T> {
 
-   private final RemoteCacheImpl<?, ?> cache;
+   private static final Log log = LogFactory.getLog(RemoteQuery.class);
+
+   private final InternalRemoteCache<?, ?> cache;
    private final SerializationContext serializationContext;
-   private final IndexedQueryMode indexedQueryMode;
 
-   private List<?> results = null;
-   private int totalResults;
-
-   RemoteQuery(QueryFactory queryFactory, RemoteCacheImpl<?, ?> cache, SerializationContext serializationContext,
-               String queryString, IndexedQueryMode indexQueryMode) {
+   RemoteQuery(QueryFactory queryFactory, InternalRemoteCache<?, ?> cache, SerializationContext serializationContext,
+               String queryString) {
       super(queryFactory, queryString);
       this.cache = cache;
       this.serializationContext = serializationContext;
-      this.indexedQueryMode = indexQueryMode;
    }
 
-   RemoteQuery(QueryFactory queryFactory, RemoteCacheImpl<?, ?> cache, SerializationContext serializationContext,
+   RemoteQuery(QueryFactory queryFactory, InternalRemoteCache<?, ?> cache, SerializationContext serializationContext,
                String queryString, Map<String, Object> namedParameters, String[] projection, long startOffset, int maxResults) {
       super(queryFactory, queryString, namedParameters, projection, startOffset, maxResults);
       this.cache = cache;
       this.serializationContext = serializationContext;
-      this.indexedQueryMode = IndexedQueryMode.FETCH;
    }
 
    @Override
    public void resetQuery() {
-      results = null;
    }
 
    @Override
-   @SuppressWarnings("unchecked")
-   public <T> List<T> list() {
-      executeQuery();
-      return (List<T>) results;
+   public List<T> list() {
+      return execute().list();
+   }
+
+   @Override
+   public QueryResult<T> execute() {
+      BaseQueryResponse<T> response = executeQuery();
+      return new QueryResult<T>() {
+         @Override
+         public OptionalLong hitCount() {
+            long totalResults = response.getTotalResults();
+            return totalResults == -1 ? OptionalLong.empty() : OptionalLong.of(totalResults);
+         }
+
+         @Override
+         public List<T> list() {
+            try {
+               return response.extractResults(serializationContext);
+            } catch (IOException e) {
+               throw new HotRodClientException(e);
+            }
+         }
+      };
+   }
+
+   @Override
+   public CloseableIterator<T> iterator() {
+      if (maxResults == -1 && startOffset == 0) {
+         log.warnPerfRemoteIterationWithoutPagination(queryString);
+      }
+      return Closeables.iterator(execute().list().iterator());
    }
 
    @Override
    public int getResultSize() {
-      executeQuery();
-      return totalResults;
+      BaseQueryResponse<?> response = executeQuery();
+      return (int) response.getTotalResults();
    }
 
-   private void executeQuery() {
-      if (results == null) {
-         validateNamedParameters();
-         QueryOperation op = cache.getOperationsFactory().newQueryOperation(this, cache.getDataFormat());
-         BaseQueryResponse response = (BaseQueryResponse) await(op.execute());
-         totalResults = (int) response.getTotalResults();
-         try {
-            results = response.extractResults(serializationContext);
-         } catch (IOException e) {
-            throw new HotRodClientException(e);
-         }
-      }
+   private BaseQueryResponse<T> executeQuery() {
+      validateNamedParameters();
+      QueryOperation op = cache.getOperationsFactory().newQueryOperation(this, cache.getDataFormat());
+      return (BaseQueryResponse<T>) (timeout != -1 ? await(op.execute(), TimeUnit.NANOSECONDS.toMillis(timeout)) : await(op.execute()));
    }
 
    /**
@@ -88,10 +108,6 @@ public final class RemoteQuery extends BaseQuery {
       return cache;
    }
 
-   public IndexedQueryMode getIndexedQueryMode() {
-      return indexedQueryMode;
-   }
-
    @Override
    public String toString() {
       return "RemoteQuery{" +
@@ -99,6 +115,7 @@ public final class RemoteQuery extends BaseQuery {
             ", namedParameters=" + namedParameters +
             ", startOffset=" + startOffset +
             ", maxResults=" + maxResults +
+            ", timeout=" + timeout +
             '}';
    }
 }

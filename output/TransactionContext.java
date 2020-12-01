@@ -4,7 +4,7 @@ import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 import static org.infinispan.commons.util.Util.toStr;
 
 import java.util.Arrays;
-import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -42,7 +42,6 @@ import org.infinispan.commons.util.CloseableIteratorSet;
 public class TransactionContext<K, V> {
 
    private static final Log log = LogFactory.getLog(TransactionContext.class, Log.class);
-   private static final boolean trace = log.isTraceEnabled();
 
    private final Map<WrappedKey<K>, TransactionEntry<K, V>> entries;
    private final Function<K, byte[]> keyMarshaller;
@@ -69,17 +68,17 @@ public class TransactionContext<K, V> {
              '}';
    }
 
-   boolean containsKey(Object key, Function<K, MetadataValue<V>> remoteValueSupplier) {
-      ByRef<Boolean> result = new ByRef<>(null);
+   CompletableFuture<Boolean> containsKey(Object key, Function<K, MetadataValue<V>> remoteValueSupplier) {
+      CompletableFuture<Boolean> result = new CompletableFuture<>();
       //noinspection unchecked
       entries.compute(wrap((K) key), (wKey, entry) -> {
          if (entry == null) {
             entry = createEntryFromRemote(wKey.key, remoteValueSupplier);
          }
-         result.set(!entry.isNonExists());
+         result.complete(!entry.isNonExists());
          return entry;
       });
-      return result.get();
+      return result;
    }
 
    boolean containsValue(Object value, Supplier<CloseableIteratorSet<Map.Entry<K, V>>> iteratorSupplier,
@@ -97,25 +96,17 @@ public class TransactionContext<K, V> {
          if (entry == null) {
             entry = TransactionEntry.notReadEntry(wKey.key);
          }
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Compute key (%s). Before=%s", wKey, entry);
          }
          T result = function.apply(entry);
          future.complete(result);
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Compute key (%s). After=%s (result=%s)", wKey, entry, result);
          }
          return entry;
       });
       return future;
-   }
-
-   OperationsFactory getOperationsFactory() {
-      return operationsFactory;
-   }
-
-   String getCacheName() {
-      return cacheName;
    }
 
    <T> CompletableFuture<T> compute(K key, Function<TransactionEntry<K, V>, T> function,
@@ -124,16 +115,16 @@ public class TransactionContext<K, V> {
       entries.compute(wrap(key), (wKey, entry) -> {
          if (entry == null) {
             entry = createEntryFromRemote(wKey.key, remoteValueSupplier);
-            if (trace) {
+            if (log.isTraceEnabled()) {
                log.tracef("Fetched key (%s) from remote. Entry=%s", wKey, entry);
             }
          }
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Compute key (%s). Before=%s", wKey, entry);
          }
          T result = function.apply(entry);
          future.complete(result);
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Compute key (%s). After=%s (result=%s)", wKey, entry, result);
          }
          return entry;
@@ -151,16 +142,16 @@ public class TransactionContext<K, V> {
       entries.compute(wrap(key), (wKey, entry) -> {
          if (entry == null) {
             entry = createEntryFromRemote(wKey.key, remoteValueSupplier);
-            if (trace) {
+            if (log.isTraceEnabled()) {
                log.tracef("Fetched key (%s) from remote. Entry=%s", wKey, entry);
             }
          }
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Compute key (%s). Before=%s", wKey, entry);
          }
          T result = function.apply(entry);
          ref.set(result);
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Compute key (%s). After=%s (result=%s)", wKey, entry, result);
          }
          return entry;
@@ -176,10 +167,10 @@ public class TransactionContext<K, V> {
     */
    int prepareContext(Xid xid, boolean onePhaseCommit, long timeout) {
       PrepareTransactionOperation operation;
-      Collection<Modification> modifications;
+      List<Modification> modifications;
       try {
          modifications = toModification();
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Preparing transaction xid=%s, remote-cache=%s, modification-size=%d", xid, cacheName,
                   modifications.size());
          }
@@ -207,7 +198,7 @@ public class TransactionContext<K, V> {
       entries.clear();
    }
 
-   private Collection<Modification> toModification() {
+   private List<Modification> toModification() {
       return entries.values().stream()
             .filter(TransactionEntry::isModified)
             .map(entry -> entry.toModification(keyMarshaller, valueMarshaller))

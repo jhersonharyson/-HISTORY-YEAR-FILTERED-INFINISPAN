@@ -19,7 +19,7 @@ import org.infinispan.distribution.BlockingInterceptor;
 import org.infinispan.interceptors.impl.EntryWrappingInterceptor;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
-import org.infinispan.test.Exceptions;
+import org.infinispan.commons.test.Exceptions;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.Test;
@@ -68,6 +68,7 @@ public class ClientSocketReadTimeoutTest extends SingleCacheManagerTest {
    protected void teardown() {
       killRemoteCacheManager(remoteCacheManager);
       killServers(hotrodServer);
+      hotrodServer = null;
       super.teardown();
    }
 

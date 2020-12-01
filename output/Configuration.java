@@ -1,20 +1,70 @@
 package org.infinispan.client.hotrod.configuration;
 
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.ASYNC_EXECUTOR_FACTORY;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CALLBACK_HANDLER;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CLIENT_SUBJECT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_SERVER_NAME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.BATCH_SIZE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CACHE_CONFIGURATION_SUFFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CACHE_NEAR_CACHE_MODE_SUFFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CACHE_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CACHE_TEMPLATE_NAME_SUFFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CLIENT_INTELLIGENCE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_EXHAUSTED_ACTION;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_ACTIVE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_PENDING_REQUESTS;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_WAIT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MIN_IDLE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECT_TIMEOUT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONTEXT_INITIALIZERS;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_POOL_SIZE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.FORCE_RETURN_VALUES;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.HASH_FUNCTION_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JAVA_SERIAL_ALLOWLIST;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_SIZE_ESTIMATE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_CERTIFICATE_PASSWORD;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_FILE_NAME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.KEY_STORE_PASSWORD;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.MARSHALLER;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.MAX_RETRIES;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.NEAR_CACHE_MAX_ENTRIES;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.NEAR_CACHE_MODE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.NEAR_CACHE_NAME_PATTERN;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.PROTOCOL_VERSION;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.REQUEST_BALANCING_STRATEGY;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_MECHANISM;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_PROPERTIES_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SERVER_LIST;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SNI_HOST_NAME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SO_TIMEOUT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SSL_CONTEXT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SSL_PROTOCOL;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.STATISTICS;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TCP_KEEP_ALIVE;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TCP_NO_DELAY;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRUST_STORE_FILE_NAME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRUST_STORE_PASSWORD;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_AUTH;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_SSL;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.VALUE_SIZE_ESTIMATE;
+
 import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.infinispan.client.hotrod.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.ProtocolVersion;
-import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
+import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.commons.configuration.BuiltBy;
-import org.infinispan.commons.configuration.ClassWhiteList;
+import org.infinispan.commons.configuration.ClassAllowList;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.Features;
 import org.infinispan.commons.util.TypedProperties;
@@ -50,22 +100,24 @@ public class Configuration {
    private final int maxRetries;
    private final NearCacheConfiguration nearCache;
    private final List<ClusterConfiguration> clusters;
-   private final List<String> serialWhitelist;
+   private final List<String> serialAllowList;
    private final int batchSize;
-   private final ClassWhiteList classWhiteList;
+   private final ClassAllowList classAllowList;
    private final StatisticsConfiguration statistics;
    private final TransactionConfiguration transaction;
    private final Features features;
    private final List<SerializationContextInitializer> contextInitializers;
+   private final Map<String, RemoteCacheConfiguration> remoteCaches;
 
    public Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory, ClassLoader classLoader,
-                 ClientIntelligence clientIntelligence, ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate,
-                 Marshaller marshaller, Class<? extends Marshaller> marshallerClass,
-                 ProtocolVersion protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
-                 int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
-                 List<ClusterConfiguration> clusters, List<String> serialWhitelist, int batchSize,
-                 TransactionConfiguration transaction, StatisticsConfiguration statistics, Features features,
-                 List<SerializationContextInitializer> contextInitializers) {
+                        ClientIntelligence clientIntelligence, ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl, boolean forceReturnValues, int keySizeEstimate,
+                        Marshaller marshaller, Class<? extends Marshaller> marshallerClass,
+                        ProtocolVersion protocolVersion, List<ServerConfiguration> servers, int socketTimeout, SecurityConfiguration security, boolean tcpNoDelay, boolean tcpKeepAlive,
+                        int valueSizeEstimate, int maxRetries, NearCacheConfiguration nearCache,
+                        List<ClusterConfiguration> clusters, List<String> serialAllowList, int batchSize,
+                        TransactionConfiguration transaction, StatisticsConfiguration statistics, Features features,
+                        List<SerializationContextInitializer> contextInitializers,
+                        Map<String, RemoteCacheConfiguration> remoteCaches) {
       this.asyncExecutorFactory = asyncExecutorFactory;
       this.balancingStrategyFactory = balancingStrategyFactory;
       this.maxRetries = maxRetries;
@@ -87,13 +139,14 @@ public class Configuration {
       this.valueSizeEstimate = valueSizeEstimate;
       this.nearCache = nearCache;
       this.clusters = clusters;
-      this.serialWhitelist = serialWhitelist;
-      this.classWhiteList = new ClassWhiteList(serialWhitelist);
+      this.serialAllowList = serialAllowList;
+      this.classAllowList = new ClassAllowList(serialAllowList);
       this.batchSize = batchSize;
       this.transaction = transaction;
       this.statistics = statistics;
       this.features = features;
       this.contextInitializers = contextInitializers;
+      this.remoteCaches = remoteCaches;
    }
 
    public ExecutorFactoryConfiguration asyncExecutorFactory() {
@@ -133,6 +186,10 @@ public class Configuration {
       return forceReturnValues;
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public int keySizeEstimate() {
       return keySizeEstimate;
    }
@@ -145,6 +202,7 @@ public class Configuration {
       return marshallerClass;
    }
 
+   @Deprecated
    public NearCacheConfiguration nearCache() {
       return nearCache;
    }
@@ -177,6 +235,10 @@ public class Configuration {
       return tcpKeepAlive;
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    public int valueSizeEstimate() {
       return valueSizeEstimate;
    }
@@ -185,16 +247,67 @@ public class Configuration {
       return maxRetries;
    }
 
+   /**
+    * @deprecated Use {@link #serialAllowList()} instead. To be removed in 14.0.
+    */
+   @Deprecated
    public List<String> serialWhitelist() {
-      return serialWhitelist;
+      return serialAllowList();
    }
 
-   public ClassWhiteList getClassWhiteList() {
-      return classWhiteList;
+   public List<String> serialAllowList() {
+      return serialAllowList;
+   }
+
+   /**
+    * @deprecated Use {@link #getClassAllowList()} instead. To be removed in 14.0.
+    */
+   @Deprecated
+   public ClassAllowList getClassWhiteList() {
+      return getClassAllowList();
+   }
+
+   public ClassAllowList getClassAllowList() {
+      return classAllowList;
    }
 
    public int batchSize() {
       return batchSize;
+   }
+
+   public Map<String, RemoteCacheConfiguration> remoteCaches() {
+      return Collections.unmodifiableMap(remoteCaches);
+   }
+
+   /**
+    * Create a new {@link RemoteCacheConfiguration}. This can be used to create additional configurations after a {@link org.infinispan.client.hotrod.RemoteCacheManager} has been initialized.
+    *
+    * @param name the name of the cache configuration to create
+    * @param builderConsumer a {@link Consumer} which receives a {@link RemoteCacheConfigurationBuilder} and can apply the necessary configurations on it.
+    * @return the {@link RemoteCacheConfiguration}
+    * @throws IllegalArgumentException if a cache configuration with the same name already exists
+    */
+   public RemoteCacheConfiguration addRemoteCache(String name, Consumer<RemoteCacheConfigurationBuilder> builderConsumer) {
+      synchronized (remoteCaches) {
+         if (remoteCaches.containsKey(name)) {
+            throw Log.HOTROD.duplicateCacheConfiguration(name);
+         } else {
+            RemoteCacheConfigurationBuilder builder = new RemoteCacheConfigurationBuilder(null, name);
+            builderConsumer.accept(builder);
+            builder.validate();
+            RemoteCacheConfiguration configuration = builder.create();
+            remoteCaches.put(name, configuration);
+            return configuration;
+         }
+      }
+   }
+
+   /**
+    * Remove a {@link RemoteCacheConfiguration} from this {@link Configuration}. If the cache configuration doesn't exist, this method has no effect.
+    * @param name the name of the {@link RemoteCacheConfiguration} to remove.
+    */
+   public void removeRemoteCache(String name) {
+      remoteCaches.remove(name);
    }
 
    public StatisticsConfiguration statistics() {
@@ -221,9 +334,10 @@ public class Configuration {
             + forceReturnValues + ", keySizeEstimate=" + keySizeEstimate + ", marshallerClass=" + marshallerClass + ", marshaller=" + marshaller + ", protocolVersion="
             + protocolVersion + ", servers=" + servers + ", socketTimeout=" + socketTimeout + ", security=" + security + ", tcpNoDelay=" + tcpNoDelay + ", tcpKeepAlive=" + tcpKeepAlive
             + ", valueSizeEstimate=" + valueSizeEstimate + ", maxRetries=" + maxRetries
-            + ", serialWhiteList=" + serialWhitelist
+            + ", serialAllowList=" + serialAllowList
             + ", batchSize=" + batchSize
             + ", nearCache=" + nearCache
+            + ", remoteCaches= " + remoteCaches
             + ", transaction=" + transaction
             + ", statistics=" + statistics
             + "]";
@@ -232,46 +346,46 @@ public class Configuration {
    public Properties properties() {
       TypedProperties properties = new TypedProperties();
       if (asyncExecutorFactory().factoryClass() != null) {
-         properties.setProperty(ConfigurationProperties.ASYNC_EXECUTOR_FACTORY, asyncExecutorFactory().factoryClass().getName());
+         properties.setProperty(ASYNC_EXECUTOR_FACTORY, asyncExecutorFactory().factoryClass().getName());
          TypedProperties aefProps = asyncExecutorFactory().properties();
-         for (String key : Arrays.asList(ConfigurationProperties.DEFAULT_EXECUTOR_FACTORY_POOL_SIZE)) {
+         for (String key : Arrays.asList(DEFAULT_EXECUTOR_FACTORY_POOL_SIZE)) {
             if (aefProps.containsKey(key)) {
                properties.setProperty(key, aefProps.getProperty(key));
             }
          }
       }
-      properties.setProperty(ConfigurationProperties.REQUEST_BALANCING_STRATEGY, balancingStrategyFactory().get().getClass().getName());
-      properties.setProperty(ConfigurationProperties.CLIENT_INTELLIGENCE, clientIntelligence().name());
-      properties.setProperty(ConfigurationProperties.CONNECT_TIMEOUT, Integer.toString(connectionTimeout()));
+      properties.setProperty(REQUEST_BALANCING_STRATEGY, balancingStrategyFactory().get().getClass().getName());
+      properties.setProperty(CLIENT_INTELLIGENCE, clientIntelligence().name());
+      properties.setProperty(CONNECT_TIMEOUT, Integer.toString(connectionTimeout()));
       for (int i = 0; i < consistentHashImpl().length; i++) {
          int version = i + 1;
          if (consistentHashImpl(version) != null) {
-            properties.setProperty(ConfigurationProperties.HASH_FUNCTION_PREFIX + "." + version,
+            properties.setProperty(HASH_FUNCTION_PREFIX + "." + version,
                   consistentHashImpl(version).getName());
          }
       }
-      properties.setProperty(ConfigurationProperties.FORCE_RETURN_VALUES, forceReturnValues());
-      properties.setProperty(ConfigurationProperties.KEY_SIZE_ESTIMATE, keySizeEstimate());
-      properties.setProperty(ConfigurationProperties.MARSHALLER, marshallerClass().getName());
-      properties.setProperty(ConfigurationProperties.PROTOCOL_VERSION, version().toString());
-      properties.setProperty(ConfigurationProperties.SO_TIMEOUT, socketTimeout());
-      properties.setProperty(ConfigurationProperties.TCP_NO_DELAY, tcpNoDelay());
-      properties.setProperty(ConfigurationProperties.TCP_KEEP_ALIVE, tcpKeepAlive());
-      properties.setProperty(ConfigurationProperties.VALUE_SIZE_ESTIMATE, valueSizeEstimate());
-      properties.setProperty(ConfigurationProperties.MAX_RETRIES, maxRetries());
-      properties.setProperty(ConfigurationProperties.STATISTICS, statistics().enabled());
+      properties.setProperty(FORCE_RETURN_VALUES, forceReturnValues());
+      properties.setProperty(KEY_SIZE_ESTIMATE, keySizeEstimate());
+      properties.setProperty(MARSHALLER, marshallerClass().getName());
+      properties.setProperty(PROTOCOL_VERSION, version().toString());
+      properties.setProperty(SO_TIMEOUT, socketTimeout());
+      properties.setProperty(TCP_NO_DELAY, tcpNoDelay());
+      properties.setProperty(TCP_KEEP_ALIVE, tcpKeepAlive());
+      properties.setProperty(VALUE_SIZE_ESTIMATE, valueSizeEstimate());
+      properties.setProperty(MAX_RETRIES, maxRetries());
+      properties.setProperty(STATISTICS, statistics().enabled());
 
-      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_EXHAUSTED_ACTION, connectionPool().exhaustedAction().name());
+      properties.setProperty(CONNECTION_POOL_EXHAUSTED_ACTION, connectionPool().exhaustedAction().name());
       properties.setProperty("exhaustedAction", connectionPool().exhaustedAction().ordinal());
-      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MAX_ACTIVE, connectionPool().maxActive());
+      properties.setProperty(CONNECTION_POOL_MAX_ACTIVE, connectionPool().maxActive());
       properties.setProperty("maxActive", connectionPool().maxActive());
-      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MAX_WAIT, connectionPool().maxWait());
+      properties.setProperty(CONNECTION_POOL_MAX_WAIT, connectionPool().maxWait());
       properties.setProperty("maxWait", connectionPool().maxWait());
-      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MIN_IDLE, connectionPool().minIdle());
+      properties.setProperty(CONNECTION_POOL_MIN_IDLE, connectionPool().minIdle());
       properties.setProperty("minIdle", connectionPool().minIdle());
-      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, connectionPool().minEvictableIdleTime());
+      properties.setProperty(CONNECTION_POOL_MIN_EVICTABLE_IDLE_TIME, connectionPool().minEvictableIdleTime());
       properties.setProperty("minEvictableIdleTimeMillis", connectionPool().minEvictableIdleTime());
-      properties.setProperty(ConfigurationProperties.CONNECTION_POOL_MAX_PENDING_REQUESTS, connectionPool().maxPendingRequests());
+      properties.setProperty(CONNECTION_POOL_MAX_PENDING_REQUESTS, connectionPool().maxPendingRequests());
 
       StringBuilder servers = new StringBuilder();
       for (ServerConfiguration server : servers()) {
@@ -280,64 +394,76 @@ public class Configuration {
          }
          servers.append(server.host()).append(":").append(server.port());
       }
-      properties.setProperty(ConfigurationProperties.SERVER_LIST, servers.toString());
+      properties.setProperty(SERVER_LIST, servers.toString());
 
-      properties.setProperty(ConfigurationProperties.USE_SSL, Boolean.toString(security.ssl().enabled()));
+      properties.setProperty(USE_SSL, Boolean.toString(security.ssl().enabled()));
 
       if (security.ssl().keyStoreFileName() != null)
-         properties.setProperty(ConfigurationProperties.KEY_STORE_FILE_NAME, security.ssl().keyStoreFileName());
+         properties.setProperty(KEY_STORE_FILE_NAME, security.ssl().keyStoreFileName());
 
       if (security.ssl().keyStorePassword() != null)
-         properties.setProperty(ConfigurationProperties.KEY_STORE_PASSWORD, new String(security.ssl().keyStorePassword()));
+         properties.setProperty(KEY_STORE_PASSWORD, new String(security.ssl().keyStorePassword()));
 
       if (security.ssl().keyStoreCertificatePassword() != null)
-         properties.setProperty(ConfigurationProperties.KEY_STORE_CERTIFICATE_PASSWORD, new String(security.ssl().keyStoreCertificatePassword()));
+         properties.setProperty(KEY_STORE_CERTIFICATE_PASSWORD, new String(security.ssl().keyStoreCertificatePassword()));
 
       if (security.ssl().trustStoreFileName() != null)
-         properties.setProperty(ConfigurationProperties.TRUST_STORE_FILE_NAME, security.ssl().trustStoreFileName());
+         properties.setProperty(TRUST_STORE_FILE_NAME, security.ssl().trustStoreFileName());
 
       if (security.ssl().trustStorePassword() != null)
-         properties.setProperty(ConfigurationProperties.TRUST_STORE_PASSWORD, new String(security.ssl().trustStorePassword()));
+         properties.setProperty(TRUST_STORE_PASSWORD, new String(security.ssl().trustStorePassword()));
 
       if (security.ssl().sniHostName() != null)
-         properties.setProperty(ConfigurationProperties.SNI_HOST_NAME, security.ssl().sniHostName());
+         properties.setProperty(SNI_HOST_NAME, security.ssl().sniHostName());
 
       if (security.ssl().protocol() != null)
-         properties.setProperty(ConfigurationProperties.SSL_PROTOCOL, security.ssl().protocol());
+         properties.setProperty(SSL_PROTOCOL, security.ssl().protocol());
 
       if (security.ssl().sslContext() != null)
-         properties.put(ConfigurationProperties.SSL_CONTEXT, security.ssl().sslContext());
+         properties.put(SSL_CONTEXT, security.ssl().sslContext());
 
-      properties.setProperty(ConfigurationProperties.USE_AUTH, Boolean.toString(security.authentication().enabled()));
+      properties.setProperty(USE_AUTH, Boolean.toString(security.authentication().enabled()));
 
       if (security.authentication().saslMechanism() != null)
-         properties.setProperty(ConfigurationProperties.SASL_MECHANISM, security.authentication().saslMechanism());
+         properties.setProperty(SASL_MECHANISM, security.authentication().saslMechanism());
 
       if (security.authentication().callbackHandler() != null)
-         properties.put(ConfigurationProperties.AUTH_CALLBACK_HANDLER, security.authentication().callbackHandler());
+         properties.put(AUTH_CALLBACK_HANDLER, security.authentication().callbackHandler());
 
       if (security.authentication().serverName() != null)
-         properties.setProperty(ConfigurationProperties.AUTH_SERVER_NAME, security.authentication().serverName());
+         properties.setProperty(AUTH_SERVER_NAME, security.authentication().serverName());
 
       if (security.authentication().clientSubject() != null)
-         properties.put(ConfigurationProperties.AUTH_CLIENT_SUBJECT, security.authentication().clientSubject());
+         properties.put(AUTH_CLIENT_SUBJECT, security.authentication().clientSubject());
 
       for (Map.Entry<String, String> entry : security.authentication().saslProperties().entrySet())
-         properties.setProperty(ConfigurationProperties.SASL_PROPERTIES_PREFIX + '.' + entry.getKey(), entry.getValue());
+         properties.setProperty(SASL_PROPERTIES_PREFIX + '.' + entry.getKey(), entry.getValue());
 
-      properties.setProperty(ConfigurationProperties.JAVA_SERIAL_WHITELIST, String.join(",", serialWhitelist));
+      properties.setProperty(JAVA_SERIAL_ALLOWLIST, String.join(",", serialAllowList));
 
-      properties.setProperty(ConfigurationProperties.BATCH_SIZE, Integer.toString(batchSize));
+      properties.setProperty(BATCH_SIZE, Integer.toString(batchSize));
 
       transaction.toProperties(properties);
 
-      properties.setProperty(ConfigurationProperties.NEAR_CACHE_MODE, nearCache.mode().name());
-      properties.setProperty(ConfigurationProperties.NEAR_CACHE_MAX_ENTRIES, Integer.toString(nearCache.maxEntries()));
+      properties.setProperty(NEAR_CACHE_MODE, nearCache.mode().name());
+      properties.setProperty(NEAR_CACHE_MAX_ENTRIES, Integer.toString(nearCache.maxEntries()));
       if (nearCache.cacheNamePattern() != null)
-         properties.setProperty(ConfigurationProperties.NEAR_CACHE_NAME_PATTERN, nearCache.cacheNamePattern().pattern());
+         properties.setProperty(NEAR_CACHE_NAME_PATTERN, nearCache.cacheNamePattern().pattern());
 
       if (contextInitializers != null && !contextInitializers.isEmpty())
-         properties.setProperty(ConfigurationProperties.CONTEXT_INITIALIZERS, contextInitializers.stream().map(sci -> sci.getClass().getName()).collect(Collectors.joining(",")));
+         properties.setProperty(CONTEXT_INITIALIZERS, contextInitializers.stream().map(sci -> sci.getClass().getName()).collect(Collectors.joining(",")));
+
+      for (RemoteCacheConfiguration remoteCache : remoteCaches.values()) {
+         String prefix = CACHE_PREFIX + remoteCache.name();
+         if (remoteCache.templateName() != null) {
+            properties.setProperty(prefix + CACHE_TEMPLATE_NAME_SUFFIX, remoteCache.templateName());
+         }
+         if (remoteCache.configuration() != null) {
+            properties.setProperty(prefix + CACHE_CONFIGURATION_SUFFIX, remoteCache.configuration());
+         }
+         properties.setProperty(prefix + CACHE_NEAR_CACHE_MODE_SUFFIX, remoteCache.nearCacheMode().name());
+         properties.setProperty(prefix + CACHE_NEAR_CACHE_MODE_SUFFIX, remoteCache.nearCacheMaxEntries());
+      }
 
       return properties;
    }

@@ -1,13 +1,12 @@
 package org.infinispan.client.hotrod.event;
 
 
-import static org.infinispan.query.dsl.Expression.param;
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -28,7 +27,6 @@ import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.query.api.continuous.ContinuousQuery;
 import org.infinispan.query.api.continuous.ContinuousQueryListener;
@@ -55,7 +53,7 @@ public class RemoteContinuousQueryLeavingRemoteCacheManagerTest extends MultiHot
 
    private RemoteCache<String, User> remoteCache;
 
-   private ControlledTimeService timeService = new ControlledTimeService();
+   private final ControlledTimeService timeService = new ControlledTimeService();
 
    @Override
    protected void createCacheManagers() throws Throwable {
@@ -76,9 +74,9 @@ public class RemoteContinuousQueryLeavingRemoteCacheManagerTest extends MultiHot
 
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder cfgBuilder = hotRodCacheConfiguration(getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
-      cfgBuilder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      cfgBuilder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User");
       cfgBuilder.expiration().disableReaper();
       return cfgBuilder;
    }
@@ -112,10 +110,8 @@ public class RemoteContinuousQueryLeavingRemoteCacheManagerTest extends MultiHot
    private Listener applyContinuousQuery(RemoteCache<String, User> cacheToUse) {
       QueryFactory qf = Search.getQueryFactory(cacheToUse);
 
-      Query query = qf.from(UserPB.class)
-            .having("age").lte(param("ageParam"))
-            .build()
-            .setParameter("ageParam", 32);
+      Query<User> query = qf.<User>create("FROM sample_bank_account.User WHERE age <= :ageParam")
+                      .setParameter("ageParam", 32);
 
       ContinuousQuery<String, User> continuousQuery = Search.getContinuousQuery(cacheToUse);
       Listener listener = new Listener();
@@ -124,7 +120,7 @@ public class RemoteContinuousQueryLeavingRemoteCacheManagerTest extends MultiHot
       return listener;
    }
 
-   public void testContinuousQueryRemoveRCM() throws IOException {
+   public void testContinuousQueryRemoveRCM() {
       // Create an additional remote cache manager that registers the same query
       RemoteCacheManager extraRemoteCacheManager = new InternalRemoteCacheManager(createHotRodClientConfigurationBuilder(server(0)).build());
       RemoteCache<String, User> extraRemoteCache = extraRemoteCacheManager.getCache();

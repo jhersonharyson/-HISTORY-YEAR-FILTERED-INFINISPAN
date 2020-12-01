@@ -1,9 +1,10 @@
 package org.infinispan.client.hotrod.query;
 
+import org.infinispan.commons.test.CommonsTestingUtil;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.SingleFileStoreConfigurationBuilder;
-import org.infinispan.test.TestingUtil;
+import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.testng.annotations.Test;
 
 /**
@@ -13,7 +14,7 @@ import org.testng.annotations.Test;
 @Test(testName = "client.hotrod.query.HotRodNonIndexedSingleFileStoreQueryTest", groups = "functional")
 public class HotRodNonIndexedSingleFileStoreQueryTest extends HotRodNonIndexedQueryTest {
 
-   private final String tmpDirectory = TestingUtil.tmpDirectory(getClass());
+   private final String tmpDirectory = CommonsTestingUtil.tmpDirectory(getClass());
 
    @Override
    protected void setup() throws Exception {
@@ -31,6 +32,11 @@ public class HotRodNonIndexedSingleFileStoreQueryTest extends HotRodNonIndexedQu
    }
 
    @Override
+   protected void configure(GlobalConfigurationBuilder builder) {
+      builder.globalState().persistentLocation(tmpDirectory);
+   }
+
+   @Override
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = new ConfigurationBuilder();
       builder.persistence()
@@ -39,7 +45,6 @@ public class HotRodNonIndexedSingleFileStoreQueryTest extends HotRodNonIndexedQu
 
       // ensure the data container contains minimal data so the store will need to be accessed to get the rest
       builder.locking().concurrencyLevel(1).memory().size(1);
-
       return builder;
    }
 }

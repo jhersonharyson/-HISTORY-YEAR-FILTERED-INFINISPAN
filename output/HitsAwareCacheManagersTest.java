@@ -187,6 +187,7 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
    protected void destroy() {
       clients.forEach(HotRodClientTestingUtil::killRemoteCacheManager);
       addr2hrServer.values().forEach(HotRodClientTestingUtil::killServers);
+      addr2hrServer.clear();
       super.destroy();
    }
 
@@ -205,10 +206,10 @@ public abstract class HitsAwareCacheManagersTest extends MultipleCacheManagersTe
          if (ctx.isOriginLocal()) {
             if ((command instanceof AbstractDataCommand) && ((AbstractDataCommand)command).hasAnyFlag(FlagBitSets.SKIP_XSITE_BACKUP)) {
                int count = backupSiteInvocationCount.incrementAndGet();
-               log.infof("Backup Hit %d for %s", count, command);
+               log.debugf("Backup Hit %d for %s", count, command);
             } else {
                int count = localSiteInvocationCount.incrementAndGet();
-               log.infof("Local Hit %d for %s", count, command);
+               log.debugf("Local Hit %d for %s", count, command);
             }
          }
          return invokeNext(ctx, command);

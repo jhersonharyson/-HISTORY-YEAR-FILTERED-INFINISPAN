@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.configuration;
 
+import java.net.URI;
 import java.util.Properties;
 import java.util.function.Supplier;
 
@@ -97,6 +98,10 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
       return builder.forceReturnValues(forceReturnValues);
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    @Override
    public ConfigurationBuilder keySizeEstimate(int keySizeEstimate) {
       return builder.keySizeEstimate(keySizeEstimate);
@@ -166,6 +171,10 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
       return builder.tcpKeepAlive(tcpKeepAlive);
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    @Override
    public ConfigurationBuilder valueSizeEstimate(int valueSizeEstimate) {
       return builder.valueSizeEstimate(valueSizeEstimate);
@@ -177,8 +186,14 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    }
 
    @Override
+   public ConfigurationBuilder addJavaSerialAllowList(String... regExs) {
+      return builder.addJavaSerialAllowList(regExs);
+   }
+
+   @Override
+   @Deprecated
    public ConfigurationBuilder addJavaSerialWhiteList(String... regExs) {
-      return builder.addJavaSerialWhiteList(regExs);
+      return builder.addJavaSerialAllowList(regExs);
    }
 
    @Override
@@ -194,6 +209,21 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    @Override
    public TransactionConfigurationBuilder transaction() {
       return builder.transaction();
+   }
+
+   @Override
+   public RemoteCacheConfigurationBuilder remoteCache(String name) {
+      return builder.remoteCache(name);
+   }
+
+   @Override
+   public ConfigurationBuilder uri(URI uri) {
+      return builder.uri(uri);
+   }
+
+   @Override
+   public ConfigurationBuilder uri(String uri) {
+      return builder.uri(uri);
    }
 
    @Override

@@ -21,15 +21,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.MetadataValue;
-import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.VersionedValue;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
 import org.infinispan.client.hotrod.configuration.NearCacheMode;
+import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 
 class AssertsNearCache<K, V> {
-   final RemoteCache<K, V> remote;
+   final InternalRemoteCache<K, V> remote;
    final Cache<byte[], ?> server;
    final BlockingQueue<MockEvent> events;
    final RemoteCacheManager manager;
@@ -39,7 +38,7 @@ class AssertsNearCache<K, V> {
    private AssertsNearCache(RemoteCacheManager manager, Cache<byte[], ?> server, BlockingQueue<MockEvent> events,
                             AtomicReference<NearCacheService<K, V>> nearCacheService) {
       this.manager = manager;
-      this.remote = manager.getCache();
+      this.remote = (InternalRemoteCache<K, V>) manager.getCache();
       this.server = server;
       this.events = events;
       this.nearCacheMode = manager.getConfiguration().nearCache().mode();
@@ -68,12 +67,6 @@ class AssertsNearCache<K, V> {
 
    AssertsNearCache<K, V> getAsync(K key, V expected) throws ExecutionException, InterruptedException {
       assertEquals(expected, remote.getAsync(key).get());
-      return this;
-   }
-
-   AssertsNearCache<K, V> getVersioned(K key, V expected) {
-      VersionedValue<V> versioned = remote.getVersioned(key);
-      assertEquals(expected, versioned == null ? null : versioned.getValue());
       return this;
    }
 
@@ -124,10 +117,16 @@ class AssertsNearCache<K, V> {
       return this;
    }
 
+   AssertsNearCache<K, V> expectNoNearEvents(long time, TimeUnit timeUnit) throws InterruptedException {
+      MockEvent event = events.poll(time, timeUnit);
+      assertNull("Event was: " + event, event);
+      return this;
+   }
+
    AssertsNearCache<K, V> expectNearGetValueVersion(K key, V value) {
       MockGetEvent get = assertGetKeyValue(key, value);
       if (value != null) {
-         long serverVersion = entryVersion(server, key);
+         long serverVersion = entryVersion(server.getAdvancedCache().withStorageMediaType(), key);
          assertEquals(serverVersion, get.value.getVersion());
       }
       return this;
@@ -171,6 +170,16 @@ class AssertsNearCache<K, V> {
       MockRemoveEvent preemptiveRemove = pollEvent(events);
       assertEquals(key, preemptiveRemove.key);
       expectNoNearEvents();
+      return this;
+   }
+
+   public AssertsNearCache<K, V> expectNearPreemptiveRemove(K key, AssertsNearCache<K, V>... affected) {
+      // Preemptive remove
+      MockRemoveEvent preemptiveRemove = pollEvent(events);
+      assertEquals(key, preemptiveRemove.key);
+      expectNoNearEvents();
+      for (AssertsNearCache<K, V> client : affected)
+         expectRemoteNearRemoveInClient(client, key);
       return this;
    }
 

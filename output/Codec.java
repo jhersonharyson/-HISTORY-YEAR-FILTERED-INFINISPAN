@@ -16,7 +16,7 @@ import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.commons.configuration.ClassWhiteList;
+import org.infinispan.commons.configuration.ClassAllowList;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.CloseableIterator;
@@ -51,6 +51,8 @@ public interface Codec {
     */
    void writeExpirationParams(ByteBuf buf, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit);
 
+   void writeBloomFilter(ByteBuf buf, int bloomFilterBits);
+
    int estimateExpirationSize(long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit);
 
    long readMessageId(ByteBuf buf);
@@ -63,9 +65,9 @@ public interface Codec {
     */
    short readHeader(ByteBuf buf, double receivedOpCode, HeaderParams params, ChannelFactory channelFactory, SocketAddress serverAddress);
 
-   AbstractClientEvent readCacheEvent(ByteBuf buf, Function<byte[], DataFormat> listenerDataFormat, short eventTypeId, ClassWhiteList whitelist, SocketAddress serverAddress);
+   AbstractClientEvent readCacheEvent(ByteBuf buf, Function<byte[], DataFormat> listenerDataFormat, short eventTypeId, ClassAllowList allowList, SocketAddress serverAddress);
 
-   Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassWhiteList whitelist, Marshaller marshaller);
+   Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller);
 
    /**
     * Logger for Hot Rod client codec
@@ -104,7 +106,7 @@ public interface Codec {
       return 0;
    }
 
-   default void writeIteratorStartOperation(ByteBuf buf, Set<Integer> segments, String filterConverterFactory, int batchSize,
+   default void writeIteratorStartOperation(ByteBuf buf, IntSet segments, String filterConverterFactory, int batchSize,
                                             boolean metadata, byte[][] filterParameters) {
       throw new UnsupportedOperationException("This version doesn't support iterating upon entries!");
    }

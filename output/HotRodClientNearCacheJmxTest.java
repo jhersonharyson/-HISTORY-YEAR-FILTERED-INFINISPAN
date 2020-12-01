@@ -39,9 +39,9 @@ public class HotRodClientNearCacheJmxTest extends AbstractInfinispanTest {
    @BeforeMethod
    protected void setup() throws Exception {
       ConfigurationBuilder cfg = hotRodCacheConfiguration();
-      cfg.jmxStatistics().enable();
+      cfg.statistics().enable();
       GlobalConfigurationBuilder globalCfg = GlobalConfigurationBuilder.defaultClusteredBuilder();
-      TestCacheManagerFactory.configureGlobalJmx(globalCfg, getClass().getSimpleName(), mBeanServerLookup);
+      TestCacheManagerFactory.configureJmx(globalCfg, getClass().getSimpleName(), mBeanServerLookup);
       cacheContainer = TestCacheManagerFactory.createClusteredCacheManager(globalCfg, cfg);
 
       hotrodServer = HotRodClientTestingUtil.startHotRodServer((EmbeddedCacheManager) cacheContainer);
@@ -68,6 +68,7 @@ public class HotRodClientNearCacheJmxTest extends AbstractInfinispanTest {
          killRemoteCacheManager(rcms[i]);
       }
       killServers(hotrodServer);
+      hotrodServer = null;
    }
 
    public void testNearRemoteCacheMBean() throws Exception {

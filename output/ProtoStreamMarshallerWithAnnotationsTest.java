@@ -54,7 +54,7 @@ public class ProtoStreamMarshallerWithAnnotationsTest extends SingleCacheManager
          this.id = id;
       }
 
-      @ProtoField(number = 2)
+      @ProtoField(2)
       public String getName() {
          return name;
       }
@@ -72,7 +72,7 @@ public class ProtoStreamMarshallerWithAnnotationsTest extends SingleCacheManager
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       cacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
-      cache = cacheManager.getCache();
+      cache = cacheManager.getCache().getAdvancedCache().withStorageMediaType();
 
       hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
@@ -95,7 +95,9 @@ public class ProtoStreamMarshallerWithAnnotationsTest extends SingleCacheManager
    @AfterClass(alwaysRun = true)
    public void release() {
       killRemoteCacheManager(remoteCacheManager);
+      remoteCacheManager = null;
       killServers(hotRodServer);
+      hotRodServer = null;
    }
 
    public void testPutAndGet() throws Exception {

@@ -4,6 +4,7 @@ import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.loadScri
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withClientListener;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withScript;
 import static org.infinispan.commons.dataconversion.MediaType.APPLICATION_OBJECT_TYPE;
+import static org.infinispan.commons.test.CommonsTestingUtil.loadFileAsString;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
@@ -26,7 +27,6 @@ import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.scripting.ScriptingManager;
 import org.infinispan.scripting.utils.ScriptingUtils;
 import org.infinispan.server.hotrod.HotRodServer;
-import org.infinispan.test.TestingUtil;
 import org.infinispan.util.concurrent.IsolationLevel;
 import org.testng.AssertJUnit;
 import org.testng.annotations.AfterMethod;
@@ -41,7 +41,6 @@ import org.testng.annotations.Test;
  */
 @Test(groups = {"functional", "smoke"}, testName = "client.hotrod.ExecTest")
 public class ExecTest extends MultiHotRodServersTest {
-   private static final String SCRIPT_CACHE = "___script_cache";
    static final String REPL_CACHE = "R";
    static final String DIST_CACHE = "D";
 
@@ -58,7 +57,7 @@ public class ExecTest extends MultiHotRodServersTest {
    @Override
    protected org.infinispan.client.hotrod.configuration.ConfigurationBuilder createHotRodClientConfigurationBuilder(HotRodServer server) {
       // Remote scripting must use the JavaSerializationMarshaller for now due to IPROTO-118
-      return createHotRodClientConfigurationBuilder(server.getHost(), server.getPort()).marshaller(JavaSerializationMarshaller.class).addJavaSerialWhiteList("java.*");
+      return createHotRodClientConfigurationBuilder(server.getHost(), server.getPort()).marshaller(JavaSerializationMarshaller.class).addJavaSerialAllowList("java.*");
    }
 
    @AfterMethod
@@ -117,8 +116,8 @@ public class ExecTest extends MultiHotRodServersTest {
             .encoding().value().mediaType(APPLICATION_OBJECT_TYPE);
       defineInAll(cacheName, builder);
       try (InputStream is = this.getClass().getResourceAsStream("/distExec.js")) {
-         String script = TestingUtil.loadFileAsString(is);
-         manager(0).getCache(SCRIPT_CACHE).put("testScriptExecutionWithPassingParams.js", script);
+         String script = loadFileAsString(is);
+         manager(0).getCache(ScriptingManager.SCRIPT_CACHE).put("testScriptExecutionWithPassingParams.js", script);
       }
       populateCache(cacheName);
 
@@ -151,7 +150,6 @@ public class ExecTest extends MultiHotRodServersTest {
       waitForClusterToForm(cacheName);
 
       RemoteCache<String, String> cache = clients.get(0).getCache(cacheName);
-      RemoteCache<String, String> scriptCache = clients.get(1).getCache(SCRIPT_CACHE);
       ScriptingUtils.loadData(cache, "/macbeth.txt");
       ScriptingManager scriptingManager = manager(0).getGlobalComponentRegistry().getComponent(ScriptingManager.class);
       loadScript("/wordCountStream_dist.js", scriptingManager, "wordCountStream_dist.js");

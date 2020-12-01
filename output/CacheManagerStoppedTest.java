@@ -47,6 +47,7 @@ public class CacheManagerStoppedTest extends SingleCacheManagerTest {
       killRemoteCacheManager(remoteCacheManager);
       killCacheManagers(cacheManager);
       killServers(hotrodServer);
+      hotrodServer = null;
    }
 
    public void testGetCacheOperations() {
@@ -111,8 +112,8 @@ public class CacheManagerStoppedTest extends SingleCacheManagerTest {
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class, dependsOnMethods = "testStopCacheManager")
-   public void testVersionedGet() {
-      remoteCache().getVersioned("key");
+   public void testGetWithMetadata() {
+      remoteCache().getWithMetadata("key");
    }
 
    @Test(expectedExceptions = RemoteCacheManagerNotStartedException.class, dependsOnMethods = "testStopCacheManager")

@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.query;
 
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
@@ -10,9 +11,9 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.Search;
 import org.infinispan.client.hotrod.marshall.MarshallerUtil;
+import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.TestDomainSCI;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.annotations.ProtoField;
@@ -39,10 +40,10 @@ public class RemoteQueryProtostreamAnnotationsDisableIndexingTest extends Single
       @ProtoField(number = 10, required = true)
       public int id;
 
-      @ProtoField(number = 20)
+      @ProtoField(20)
       public String text;
 
-      @ProtoField(number = 30)
+      @ProtoField(30)
       public Author author;
 
       public Memo(int id, String text) {
@@ -64,7 +65,7 @@ public class RemoteQueryProtostreamAnnotationsDisableIndexingTest extends Single
       @ProtoField(number = 1, required = true)
       public int id;
 
-      @ProtoField(number = 2)
+      @ProtoField(2)
       public String name;
 
       public Author(int id, String name) {
@@ -84,11 +85,11 @@ public class RemoteQueryProtostreamAnnotationsDisableIndexingTest extends Single
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       org.infinispan.configuration.cache.ConfigurationBuilder builder = new org.infinispan.configuration.cache.ConfigurationBuilder();
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("sample_bank_account.User");
 
-      return TestCacheManagerFactory.createServerModeCacheManager(builder);
+      return TestCacheManagerFactory.createServerModeCacheManager(TestDomainSCI.INSTANCE, builder);
    }
 
    @Override
@@ -126,10 +127,10 @@ public class RemoteQueryProtostreamAnnotationsDisableIndexingTest extends Single
 
       // get memo1 back from remote cache via query and check its attributes
       QueryFactory qf = Search.getQueryFactory(remoteCache);
-      Query query = qf.from(Memo.class)
+      Query<Memo> query = qf.from(Memo.class)
             .having("text").like("%ipsum%")
             .build();
-      List<Memo> list = query.list();
+      List<Memo> list = query.execute().list();
       assertNotNull(list);
       assertEquals(1, list.size());
       assertEquals(Memo.class, list.get(0).getClass());

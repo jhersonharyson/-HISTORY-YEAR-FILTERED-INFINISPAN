@@ -3,9 +3,11 @@ package org.infinispan.client.hotrod.configuration;
 import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
 import java.lang.ref.WeakReference;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +23,7 @@ import org.infinispan.client.hotrod.FailoverRequestBalancingStrategy;
 import org.infinispan.client.hotrod.ProtocolVersion;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.impl.HotRodURI;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHashV2;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
@@ -52,6 +55,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    // Match IPv4 (host:port) or IPv6 ([host]:port) addresses
    private static final Pattern ADDRESS_PATTERN = Pattern
          .compile("(\\[([0-9A-Fa-f:]+)\\]|([^:/?#]*))(?::(\\d*))?");
+   private static final int CACHE_PREFIX_LENGTH = ConfigurationProperties.CACHE_PREFIX.length();
 
    private WeakReference<ClassLoader> classLoader;
    private final ExecutorFactoryConfigurationBuilder asyncExecutorFactory;
@@ -60,7 +64,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    private final ConnectionPoolConfigurationBuilder connectionPool;
    private int connectionTimeout = ConfigurationProperties.DEFAULT_CONNECT_TIMEOUT;
    @SuppressWarnings("unchecked")
-   private final Class<? extends ConsistentHash> consistentHashImpl[] = new Class[]{
+   private final Class<? extends ConsistentHash>[] consistentHashImpl = new Class[]{
          null, ConsistentHashV2.class, SegmentConsistentHash.class
    };
    private boolean forceReturnValues;
@@ -76,13 +80,14 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    private int valueSizeEstimate = ConfigurationProperties.DEFAULT_VALUE_SIZE;
    private int maxRetries = ConfigurationProperties.DEFAULT_MAX_RETRIES;
    private final NearCacheConfigurationBuilder nearCache;
-   private final List<String> whiteListRegExs = new ArrayList<>();
+   private final List<String> allowListRegExs = new ArrayList<>();
    private int batchSize = ConfigurationProperties.DEFAULT_BATCH_SIZE;
    private final TransactionConfigurationBuilder transaction;
    private final StatisticsConfigurationBuilder statistics;
    private final List<ClusterConfigurationBuilder> clusters = new ArrayList<>();
    private Features features;
    private final List<SerializationContextInitializer> contextInitializers = new ArrayList<>();
+   private final Map<String, RemoteCacheConfigurationBuilder> remoteCacheBuilders;
 
    public ConfigurationBuilder() {
       this.classLoader = new WeakReference<>(Thread.currentThread().getContextClassLoader());
@@ -92,6 +97,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.nearCache = new NearCacheConfigurationBuilder(this);
       this.transaction = new TransactionConfigurationBuilder(this);
       this.statistics = new StatisticsConfigurationBuilder(this);
+      this.remoteCacheBuilders = new HashMap<>();
    }
 
    @Override
@@ -114,7 +120,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       return this;
    }
 
-   public static final void parseServers(String servers, BiConsumer<String, Integer> c) {
+   public static void parseServers(String servers, BiConsumer<String, Integer> c) {
       for (String server : servers.split(";")) {
          Matcher matcher = ADDRESS_PATTERN.matcher(server.trim());
          if (matcher.matches()) {
@@ -216,6 +222,10 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       return this;
    }
 
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    @Override
    public ConfigurationBuilder keySizeEstimate(int keySizeEstimate) {
       this.keySizeEstimate = keySizeEstimate;
@@ -223,14 +233,14 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    @Override
-   public ConfigurationBuilder marshaller(String marshaller) {
-      this.marshallerClass = Util.loadClass(marshaller, this.classLoader());
-      return this;
+   public ConfigurationBuilder marshaller(String marshallerClassName) {
+      return marshaller(marshallerClassName == null ? null : Util.loadClass(marshallerClassName, classLoader()));
    }
 
    @Override
-   public ConfigurationBuilder marshaller(Class<? extends Marshaller> marshaller) {
-      this.marshallerClass = marshaller;
+   public ConfigurationBuilder marshaller(Class<? extends Marshaller> marshallerClass) {
+      this.marshallerClass = marshallerClass;
+      this.marshaller = marshallerClass == null ? null : Util.getInstance(marshallerClass);
       return this;
    }
 
@@ -260,6 +270,10 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       return this;
    }
 
+   /**
+    * @deprecated since 11.0. To be removed in 14.0. Use {@link RemoteCacheConfigurationBuilder#nearCacheMode(NearCacheMode)} and {@link RemoteCacheConfigurationBuilder#nearCacheMaxEntries(int)} instead.
+    */
+   @Deprecated
    public NearCacheConfigurationBuilder nearCache() {
       return nearCache;
    }
@@ -304,6 +318,22 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    @Override
+   public ConfigurationBuilder uri(URI uri) {
+      this.read(HotRodURI.create(uri).toConfigurationBuilder().build(false));
+      return this;
+   }
+
+   @Override
+   public ConfigurationBuilder uri(String uri) {
+      this.read(HotRodURI.create(uri).toConfigurationBuilder().build(false));
+      return this;
+   }
+
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
+   @Override
    public ConfigurationBuilder valueSizeEstimate(int valueSizeEstimate) {
       this.valueSizeEstimate = valueSizeEstimate;
       return this;
@@ -316,9 +346,15 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    @Override
-   public ConfigurationBuilder addJavaSerialWhiteList(String... regEx) {
-      this.whiteListRegExs.addAll(Arrays.asList(regEx));
+   public ConfigurationBuilder addJavaSerialAllowList(String... regEx) {
+      this.allowListRegExs.addAll(Arrays.asList(regEx));
       return this;
+   }
+
+   @Override
+   @Deprecated
+   public ConfigurationBuilder addJavaSerialWhiteList(String... regEx) {
+      return addJavaSerialAllowList(regEx);
    }
 
    @Override
@@ -341,8 +377,18 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
    }
 
    @Override
+   public RemoteCacheConfigurationBuilder remoteCache(String name) {
+      return remoteCacheBuilders.computeIfAbsent(name, (n) -> new RemoteCacheConfigurationBuilder(this, n));
+   }
+
+   @Override
    public ConfigurationBuilder withProperties(Properties properties) {
       TypedProperties typed = TypedProperties.toTypedProperties(properties);
+
+      if (typed.containsKey(ConfigurationProperties.URI)) {
+         HotRodURI uri = HotRodURI.create(typed.getProperty(ConfigurationProperties.URI));
+         this.read(uri.toConfigurationBuilder().build());
+      }
 
       if (typed.containsKey(ConfigurationProperties.ASYNC_EXECUTOR_FACTORY)) {
          this.asyncExecutorFactory().factoryClass(typed.getProperty(ConfigurationProperties.ASYNC_EXECUTOR_FACTORY, null, true));
@@ -392,14 +438,21 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.security.ssl().withProperties(properties);
       this.security.authentication().withProperties(properties);
 
-      String serialWhitelist = typed.getProperty(ConfigurationProperties.JAVA_SERIAL_WHITELIST);
-      if (serialWhitelist != null && !serialWhitelist.isEmpty()) {
-         String[] classes = serialWhitelist.split(",");
-         Collections.addAll(this.whiteListRegExs, classes);
+      String serialAllowList = typed.getProperty(ConfigurationProperties.JAVA_SERIAL_WHITELIST);
+      if (serialAllowList != null && !serialAllowList.isEmpty()) {
+         org.infinispan.commons.logging.Log.CONFIG.deprecatedProperty(ConfigurationProperties.JAVA_SERIAL_WHITELIST, ConfigurationProperties.JAVA_SERIAL_ALLOWLIST);
+         String[] classes = serialAllowList.split(",");
+         Collections.addAll(this.allowListRegExs, classes);
+      }
+
+      serialAllowList = typed.getProperty(ConfigurationProperties.JAVA_SERIAL_ALLOWLIST);
+      if (serialAllowList != null && !serialAllowList.isEmpty()) {
+         String[] classes = serialAllowList.split(",");
+         Collections.addAll(this.allowListRegExs, classes);
       }
 
       this.batchSize(typed.getIntProperty(ConfigurationProperties.BATCH_SIZE, batchSize, true));
-      transaction.withTransactionProperties(properties);
+      transaction.withTransactionProperties(typed);
       nearCache.withProperties(properties);
 
       Map<String, String> xsiteProperties = typed.entrySet().stream()
@@ -408,10 +461,23 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
                   e -> ConfigurationProperties.CLUSTER_PROPERTIES_PREFIX_REGEX
                         .matcher((String) e.getKey()).replaceFirst(""),
                   e -> StringPropertyReplacer.replaceProperties((String) e.getValue())));
-      xsiteProperties.entrySet().forEach(entry -> {
-         ClusterConfigurationBuilder cluster = this.addCluster(entry.getKey());
-         parseServers(entry.getValue(), (host, port) -> cluster.addClusterNode(host, port));
+      xsiteProperties.forEach((key, value) -> {
+         ClusterConfigurationBuilder cluster = this.addCluster(key);
+         parseServers(value, cluster::addClusterNode);
       });
+
+      Set<String> cachesNames = typed.keySet().stream()
+            .map(k -> (String)k)
+            .filter(k -> k.startsWith(ConfigurationProperties.CACHE_PREFIX))
+            .map(k ->
+                  k.charAt(CACHE_PREFIX_LENGTH) =='[' ?
+                        k.substring(CACHE_PREFIX_LENGTH + 1, k.indexOf(']', CACHE_PREFIX_LENGTH)) :
+                        k.substring(CACHE_PREFIX_LENGTH, k.indexOf('.', CACHE_PREFIX_LENGTH + 1 ))
+            ).collect(Collectors.toSet());
+
+      for(String cacheName : cachesNames) {
+         this.remoteCache(cacheName).withProperties(typed);
+      }
 
       statistics.withProperties(properties);
       return this;
@@ -450,24 +516,31 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
 
       List<ClusterConfiguration> serverClusterConfigs = clusters.stream()
             .map(ClusterConfigurationBuilder::create).collect(Collectors.toList());
-      if (marshaller == null && marshallerClass == null) {
-         handleNullMarshaller();
+
+      Marshaller buildMarshaller = this.marshaller;
+      if (buildMarshaller == null && marshallerClass == null) {
+         buildMarshaller = handleNullMarshaller();
+      }
+      Class<? extends Marshaller> buildMarshallerClass = this.marshallerClass;
+      if (buildMarshallerClass == null) {
+         // Populate the marshaller class as well, so it can be exported to properties
+         buildMarshallerClass = buildMarshaller.getClass();
+      } else {
+         if (buildMarshaller != null && !buildMarshallerClass.isInstance(buildMarshaller))
+            throw new IllegalArgumentException("Both marshaller and marshallerClass attributes are present, but marshaller is not an instance of marshallerClass");
       }
 
+      Map<String, RemoteCacheConfiguration> remoteCaches = remoteCacheBuilders.entrySet().stream().collect(Collectors.toMap(
+            Map.Entry::getKey, e -> e.getValue().create()));
+
       return new Configuration(asyncExecutorFactory.create(), balancingStrategyFactory, classLoader == null ? null : classLoader.get(), clientIntelligence, connectionPool.create(), connectionTimeout,
-            consistentHashImpl, forceReturnValues, keySizeEstimate, marshaller, marshallerClass, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive,
-            valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs, whiteListRegExs, batchSize, transaction.create(), statistics.create(), features, contextInitializers);
+                               consistentHashImpl, forceReturnValues, keySizeEstimate, buildMarshaller, buildMarshallerClass, protocolVersion, servers, socketTimeout, security.create(), tcpNoDelay, tcpKeepAlive,
+                               valueSizeEstimate, maxRetries, nearCache.create(), serverClusterConfigs, allowListRegExs, batchSize, transaction.create(), statistics.create(), features, contextInitializers, remoteCaches);
    }
 
    // Method that handles default marshaller - needed as a placeholder
-   private void handleNullMarshaller() {
-      // First see if infinispan-jboss-marshalling is in the class path - if so we can use the generic marshaller
-      marshaller = Util.getJBossMarshaller(ConfigurationBuilder.class.getClassLoader(), null);
-      if (marshaller == null) {
-         // Otherwise we use the protostream marshaller
-         marshaller = new ProtoStreamMarshaller();
-      }
-      marshallerClass = marshaller.getClass();
+   private Marshaller handleNullMarshaller() {
+      return new ProtoStreamMarshaller();
    }
 
    @Override
@@ -511,7 +584,7 @@ public class ConfigurationBuilder implements ConfigurationChildBuilder, Builder<
       this.valueSizeEstimate = template.valueSizeEstimate();
       this.maxRetries = template.maxRetries();
       this.nearCache.read(template.nearCache());
-      this.whiteListRegExs.addAll(template.serialWhitelist());
+      this.allowListRegExs.addAll(template.serialWhitelist());
       this.transaction.read(template.transaction());
       this.statistics.read(template.statistics());
       this.contextInitializers.clear();

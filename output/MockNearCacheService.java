@@ -1,6 +1,9 @@
 package org.infinispan.client.hotrod.near;
 
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.function.BiConsumer;
 
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
@@ -15,8 +18,8 @@ public class MockNearCacheService<K, V> extends NearCacheService<K, V> {
    }
 
    @Override
-   protected NearCache<K, V> createNearCache(NearCacheConfiguration config) {
-      NearCache<K, V> delegate = super.createNearCache(config);
+   protected NearCache<K, V> createNearCache(NearCacheConfiguration config, BiConsumer<K, MetadataValue<V>> biConsumer) {
+      NearCache<K, V> delegate = super.createNearCache(config, biConsumer);
       return new MockNearCache<>(delegate, events);
    }
 
@@ -46,13 +49,13 @@ public class MockNearCacheService<K, V> extends NearCacheService<K, V> {
       @Override
       public void put(K key, MetadataValue<V> value) {
          delegate.put(key, value);
-         events.add(new MockPutEvent<K, V>(key, value));
+         events.add(new MockPutEvent<>(key, value));
       }
 
       @Override
       public void putIfAbsent(K key, MetadataValue<V> value) {
          delegate.putIfAbsent(key, value);
-         events.add(new MockPutIfAbsentEvent<K, V>(key, value));
+         events.add(new MockPutIfAbsentEvent<>(key, value));
       }
 
       @Override
@@ -80,6 +83,11 @@ public class MockNearCacheService<K, V> extends NearCacheService<K, V> {
       public int size() {
          return delegate.size();
       }
+
+      @Override
+      public Iterator<Map.Entry<K, MetadataValue<V>>> iterator() {
+         return delegate.iterator();
+      }
    }
 
    static class MockPutEvent<K, V> extends MockKeyValueEvent<K, V> {
@@ -101,6 +109,11 @@ public class MockNearCacheService<K, V> extends NearCacheService<K, V> {
       final K key;
       MockRemoveEvent(K key) {
          this.key = key;
+      }
+
+      @Override
+      public String toString() {
+         return "MockRemoveEvent{key=" + key + '}';
       }
    }
    static class MockClearEvent extends MockEvent {}

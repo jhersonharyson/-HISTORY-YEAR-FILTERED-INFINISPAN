@@ -5,9 +5,13 @@ import static java.util.stream.Collectors.toMap;
 import static java.util.stream.IntStream.range;
 import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -34,15 +38,14 @@ import org.infinispan.commons.util.Immutables;
 public final class TopologyInfo {
 
    private static final Log log = LogFactory.getLog(TopologyInfo.class, Log.class);
-   private static final boolean trace = log.isTraceEnabled();
 
-   private Map<WrappedByteArray, Collection<SocketAddress>> servers = new ConcurrentHashMap<>();
+   private Map<WrappedByteArray, Collection<InetSocketAddress>> servers = new ConcurrentHashMap<>();
    private Map<WrappedByteArray, ConsistentHash> consistentHashes = new ConcurrentHashMap<>();
    private Map<WrappedByteArray, Integer> segmentsByCache = new ConcurrentHashMap<>();
    private Map<WrappedByteArray, AtomicInteger> topologyIds = new ConcurrentHashMap<>();
    private final ConsistentHashFactory hashFactory = new ConsistentHashFactory();
 
-   public TopologyInfo(AtomicInteger topologyId, Collection<SocketAddress> initialServers, Configuration configuration) {
+   public TopologyInfo(AtomicInteger topologyId, Collection<InetSocketAddress> initialServers, Configuration configuration) {
       this.topologyIds.put(WrappedByteArray.EMPTY_BYTES, topologyId);
       this.servers.put(WrappedByteArray.EMPTY_BYTES, initialServers);
       this.hashFactory.init(configuration);
@@ -62,11 +65,42 @@ public final class TopologyInfo {
       }
    }
 
-   public Collection<SocketAddress> getServers(WrappedByteArray cacheName) {
+   public Map<SocketAddress, Set<Integer>> getPrimarySegmentsByServer(byte[] cacheName) {
+      WrappedByteArray key = new WrappedByteArray(cacheName);
+      ConsistentHash consistentHash = consistentHashes.get(key);
+      if (consistentHash != null) {
+         return consistentHash.getPrimarySegmentsByServer();
+      } else {
+         Optional<Integer> numSegments = Optional.ofNullable(segmentsByCache.get(key));
+         Collection<InetSocketAddress> cacheServers = servers.get(key);
+
+         if (cacheServers.isEmpty()) {
+            return Collections.emptyMap();
+         }
+
+         Optional<Map<SocketAddress, Set<Integer>>> targets = numSegments.map(maxSegment -> {
+            Map<SocketAddress, Set<Integer>> addressSegments = new HashMap<>(cacheServers.size());
+            Iterator<InetSocketAddress> addressIterator = cacheServers.iterator();
+            for (int i = 0; i < maxSegment; ++i) {
+               SocketAddress nextAddress;
+               if (!addressIterator.hasNext()) {
+                  addressIterator = cacheServers.iterator();
+               }
+               nextAddress = addressIterator.next();
+               addressSegments.computeIfAbsent(nextAddress, ignore -> new HashSet<>()).add(i);
+            }
+            return addressSegments;
+         });
+
+         return Immutables.immutableMapWrap(targets.orElse(Collections.emptyMap()));
+      }
+   }
+
+   public Collection<InetSocketAddress> getServers(WrappedByteArray cacheName) {
       return servers.computeIfAbsent(cacheName, k -> servers.get(WrappedByteArray.EMPTY_BYTES));
    }
 
-   public Collection<SocketAddress> getServers() {
+   public Collection<InetSocketAddress> getServers() {
       // Note: the returned list contains duplicities as the server is there once per each cache
       return servers.values().stream().flatMap(Collection::stream).collect(Collectors.toList());
    }
@@ -81,7 +115,7 @@ public final class TopologyInfo {
       }
       WrappedByteArray wrappedName = new WrappedByteArray(cacheName);
       consistentHashes.put(wrappedName, hash);
-      if (trace) {
+      if (log.isTraceEnabled()) {
          log.tracef("(1) Updating topology for %s: %s -> %s", wrappedName, topologyIds.get(wrappedName), topologyId);
       }
       topologyIds.put(wrappedName, topologyId);
@@ -100,7 +134,7 @@ public final class TopologyInfo {
          consistentHashes.put(wrappedName, hash);
       }
       segmentsByCache.put(wrappedName, numSegments);
-      if (trace) {
+      if (log.isTraceEnabled()) {
          log.tracef("(2) Updating topology for %s: %s -> %s", wrappedName, topologyIds.get(wrappedName), topologyId);
       }
       topologyIds.put(wrappedName, topologyId);
@@ -112,7 +146,7 @@ public final class TopologyInfo {
          ConsistentHash consistentHash = consistentHashes.get(new WrappedByteArray(cacheName));
          if (consistentHash != null) {
             server = Optional.of(consistentHash.getServer(key));
-            if (trace) {
+            if (log.isTraceEnabled()) {
                log.tracef("Using consistent hash for determining the server: " + server);
             }
          }
@@ -125,13 +159,13 @@ public final class TopologyInfo {
    public boolean isTopologyValid(byte[] cacheName) {
       Integer id = topologyIds.get(new WrappedByteArray(cacheName)).get();
       Boolean valid = id == null || id.intValue() != HotRodConstants.SWITCH_CLUSTER_TOPOLOGY;
-      if (trace)
+      if (log.isTraceEnabled())
          log.tracef("Is topology id (%s) valid? %b", id, valid);
 
       return valid;
    }
 
-   public void updateServers(byte[] cacheName, Collection<SocketAddress> updatedServers) {
+   public void updateServers(byte[] cacheName, Collection<InetSocketAddress> updatedServers) {
       // We must not update servers for other caches than cacheName because the list of servers
       // here would get out of sync with balancer.
       WrappedByteArray wrappedCacheName;
@@ -154,7 +188,7 @@ public final class TopologyInfo {
 
    public AtomicInteger createTopologyId(byte[] cacheName, int topologyId) {
       WrappedByteArray wrappedName = new WrappedByteArray(cacheName);
-      if (trace) {
+      if (log.isTraceEnabled()) {
          log.tracef("Creating topology for %s (absent ? %s) id=%d", wrappedName, topologyIds.get(wrappedName), topologyId);
       }
       return topologyIds.computeIfAbsent(wrappedName, c -> new AtomicInteger(topologyId));
@@ -163,7 +197,7 @@ public final class TopologyInfo {
    public void setTopologyId(byte[] cacheName, int topologyId) {
       WrappedByteArray wrappedName = new WrappedByteArray(cacheName);
       AtomicInteger id = topologyIds.get(wrappedName);
-      if (trace) {
+      if (log.isTraceEnabled()) {
          log.tracef("Setting topology for %s: %d -> %d", wrappedName, id.get(), topologyId);
       }
       id.set(topologyId);

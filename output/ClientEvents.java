@@ -5,25 +5,24 @@ import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.annotation.ClientListener;
+import org.infinispan.client.hotrod.event.impl.ClientEventDispatcher;
 import org.infinispan.client.hotrod.filter.Filters;
 import org.infinispan.commons.util.ReflectionUtil;
 import org.infinispan.query.dsl.Query;
 
 public class ClientEvents {
 
-   private static final ClientCacheFailoverEvent FAILOVER_EVENT_SINGLETON = new ClientCacheFailoverEvent() {
-      @Override
-      public ClientEvent.Type getType() {
-         return ClientEvent.Type.CLIENT_CACHE_FAILOVER;
-      }
-   };
-
    private ClientEvents() {
       // Static helper class, cannot be constructed
    }
 
+   /**
+    * @deprecated since 10.1.2. Will be removed in 11 without replacement.
+    */
+   @Deprecated
    public static ClientCacheFailoverEvent mkCachefailoverEvent() {
-      return FAILOVER_EVENT_SINGLETON;
+      //todo make ClientEventDispatcher.FAILOVER_EVENT_SINGLETON private after removing this deprecated method in 11
+      return ClientEventDispatcher.FAILOVER_EVENT_SINGLETON;
    }
 
    /**
@@ -37,7 +36,7 @@ public class ClientEvents {
     * @param listener    the listener instance
     * @param query       the query to be used for filtering and conversion (if projections are used)
     */
-   public static void addClientQueryListener(RemoteCache<?, ?> remoteCache, Object listener, Query query) {
+   public static void addClientQueryListener(RemoteCache<?, ?> remoteCache, Object listener, Query<?> query) {
       ClientListener l = ReflectionUtil.getAnnotation(listener.getClass(), ClientListener.class);
       if (l == null) {
          throw HOTROD.missingClientListenerAnnotation(listener.getClass().getName());

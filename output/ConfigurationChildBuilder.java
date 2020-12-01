@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.configuration;
 
+import java.net.URI;
 import java.util.Properties;
 import java.util.function.Supplier;
 
@@ -49,7 +50,7 @@ public interface ConfigurationChildBuilder {
     * For replicated (vs distributed) Hot Rod server clusters, the client balances requests to the
     * servers according to this strategy.
     *
-    * @deprecated since 9.3, use {@link #balancingStrategy(Supplier)} instead.
+    * @deprecated since 9.3. To be removed in 12.0. Use {@link #balancingStrategy(Supplier)} instead.
     */
    @Deprecated
    ConfigurationBuilder balancingStrategy(FailoverRequestBalancingStrategy balancingStrategy);
@@ -69,8 +70,8 @@ public interface ConfigurationChildBuilder {
    /**
     * Specifies the {@link ClassLoader} used to find certain resources used by configuration when specified by name
     * (e.g. certificate stores). Infinispan will search through the classloader which loaded this class, the system
-    * classloader, the TCCL and the OSGi classloader (if applicable).
-    * @deprecated since 9.0.  If you need to load configuration resources from other locations, you will need to do so
+    * classloader and the TCCL classloader.
+    * @deprecated since 9.0. To be removed in 12.0. If you need to load configuration resources from other locations, you will need to do so
     * yourself and use the appropriate configuration methods (e.g. {@link SslConfigurationBuilder#sslContext(javax.net.ssl.SSLContext)})
     */
    @Deprecated
@@ -110,8 +111,9 @@ public interface ConfigurationChildBuilder {
    ConfigurationBuilder forceReturnValues(boolean forceReturnValues);
 
    /**
-    * This hint allows sizing of byte buffers when serializing and deserializing keys, to minimize array resizing. It defaults to 64.
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
     */
+   @Deprecated
    ConfigurationBuilder keySizeEstimate(int keySizeEstimate);
 
    /**
@@ -155,7 +157,7 @@ public interface ConfigurationChildBuilder {
     * This property defines the protocol version that this client should use. Defaults to the latest protocol version
     * supported by this client.
     *
-    * @deprecated Use {@link ConfigurationChildBuilder#version(ProtocolVersion)} instead.
+    * @deprecated since 9.0. To be removed in 12.0. Use {@link ConfigurationChildBuilder#version(ProtocolVersion)} instead.
     */
    @Deprecated
    ConfigurationBuilder protocolVersion(String protocolVersion);
@@ -188,9 +190,19 @@ public interface ConfigurationChildBuilder {
    ConfigurationBuilder tcpKeepAlive(boolean keepAlive);
 
    /**
-    * This hint allows sizing of byte buffers when serializing and deserializing values, to minimize
-    * array resizing. It defaults to 512
+    * Configures this builder using the specified URI.
     */
+   ConfigurationBuilder uri(URI uri);
+
+   /**
+    * Configures this builder using the specified URI.
+    */
+   ConfigurationBuilder uri(String uri);
+
+   /**
+    * @deprecated Since 12.0, does nothing and will be removed in 15.0
+    */
+   @Deprecated
    ConfigurationBuilder valueSizeEstimate(int valueSizeEstimate);
 
    /**
@@ -203,6 +215,12 @@ public interface ConfigurationChildBuilder {
     * List of regular expressions for classes that can be deserialized using standard Java deserialization
     * when reading data that might have been stored with a different endpoint, e.g. REST.
     */
+   ConfigurationBuilder addJavaSerialAllowList(String... regEx);
+
+   /**
+    * @deprecated Use {@link #addJavaSerialAllowList(String...)} instead. To be removed in 14.0.
+    */
+   @Deprecated
    ConfigurationBuilder addJavaSerialWhiteList(String... regEx);
 
    /**
@@ -221,6 +239,13 @@ public interface ConfigurationChildBuilder {
     * Transaction configuration
     */
    TransactionConfigurationBuilder transaction();
+
+   /**
+    * Per-cache configuration
+    * @param name the name of the cache to which specific configuration should be applied. You may use wildcard globbing (e.g. <code>cache-*</code>) which will apply to any cache that matches.
+    * @return the {@link RemoteCacheConfigurationBuilder} for the cache
+    */
+   RemoteCacheConfigurationBuilder remoteCache(String name);
 
    /**
     * Configures this builder using the specified properties. See {@link ConfigurationBuilder} for a list.

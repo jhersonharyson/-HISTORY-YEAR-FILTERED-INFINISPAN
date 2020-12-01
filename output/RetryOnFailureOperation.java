@@ -38,7 +38,6 @@ import net.jcip.annotations.Immutable;
 public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> implements ChannelOperation {
 
    protected static final Log log = LogFactory.getLog(RetryOnFailureOperation.class, Log.class);
-   protected static final boolean trace = log.isTraceEnabled();
 
    private int retryCount = 0;
    private Set<SocketAddress> failedServers = null;
@@ -56,7 +55,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
       assert !isDone();
       try {
          currentClusterName = channelFactory.getCurrentClusterName();
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Requesting channel for operation %s", this);
          }
          fetchChannelAndInvoke(retryCount, failedServers);
@@ -69,9 +68,8 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
 
    @Override
    public void invoke(Channel channel) {
-      assert channel.isActive();
       try {
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("About to start executing operation %s on %s", this, channel);
          }
          executeOperation(channel);
@@ -92,7 +90,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
 
    private void retryIfNotDone() {
       if (isDone()) {
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef("Not retrying as done (exceptionally=%s), retryCount=%d", this.isCompletedExceptionally(), retryCount);
          }
       } else {
@@ -117,7 +115,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
          failedServers = new HashSet<>();
       }
 
-      if (trace)
+      if (log.isTraceEnabled())
          log.tracef("Add %s to failed servers", address);
 
       failedServers.add(address);
@@ -144,9 +142,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
             completeExceptionally(cause);
          } finally {
             if (channel != null) {
-               if (trace) {
-                  log.tracef(cause, "(1) %s Requesting %s close due to exception", this.toString(), channel);
-               }
+               HOTROD.closingChannelAfterError(channel, cause);
                channel.close();
             }
          }
@@ -173,9 +169,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
             if (headerDecoder != null) {
                channel.pipeline().remove(HeaderDecoder.NAME);
             }
-            if (trace) {
-               log.tracef(cause, "(2) Requesting %s close due to exception", channel);
-            }
+            HOTROD.closingChannelAfterError(channel, cause);
             channel.close();
             if (headerDecoder != null) {
                headerDecoder.failoverClientListeners();
@@ -184,7 +178,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
          logAndRetryOrFail(cause, true);
          return null;
       } else if (cause instanceof RemoteNodeSuspectException) {
-         // Why can't we switch cluster here?
+         // TODO Clients should never receive a RemoteNodeSuspectException, see ISPN-11636
          logAndRetryOrFail(cause, false);
          return null;
       } else if (cause instanceof HotRodClientException && ((HotRodClientException) cause).isServerError()) {
@@ -198,7 +192,7 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
 
    protected void logAndRetryOrFail(Throwable e, boolean canSwitchCluster) {
       if (retryCount < channelFactory.getMaxRetries() && channelFactory.getMaxRetries() >= 0) {
-         if (trace) {
+         if (log.isTraceEnabled()) {
             log.tracef(e, "Exception encountered in %s. Retry %d out of %d", this, retryCount, channelFactory.getMaxRetries());
          }
          retryCount++;
@@ -244,6 +238,11 @@ public abstract class RetryOnFailureOperation<T> extends HotRodOperation<T> impl
       channelFactory.fetchChannelAndInvoke(failedServers, cacheName, this);
    }
 
+   /**
+    * Perform the operation-specific request/response I/O on the specified channel.
+    * If an error occurs during I/O, this class will detect it and retry the operation with a different channel by invoking the executeOperation method again.
+    * @param channel the channel to use for I/O
+    */
    protected abstract void executeOperation(Channel channel);
 
 }

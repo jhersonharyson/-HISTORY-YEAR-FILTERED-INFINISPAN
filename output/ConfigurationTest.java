@@ -3,7 +3,10 @@ package org.infinispan.client.hotrod.configuration;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.ASYNC_EXECUTOR_FACTORY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CALLBACK_HANDLER;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CLIENT_SUBJECT;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_PASSWORD;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_REALM;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_SERVER_NAME;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_USERNAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CLUSTER_PROPERTIES_PREFIX;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_EXHAUSTED_ACTION;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MAX_ACTIVE;
@@ -13,7 +16,7 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTI
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECTION_POOL_MIN_IDLE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CONNECT_TIMEOUT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.HASH_FUNCTION_PREFIX;
-import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JAVA_SERIAL_WHITELIST;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JAVA_SERIAL_ALLOWLIST;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JMX;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JMX_DOMAIN;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.JMX_NAME;
@@ -42,9 +45,11 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.TRUST_ST
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_AUTH;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.USE_SSL;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.VALUE_SIZE_ESTIMATE;
+import static org.infinispan.commons.test.Exceptions.expectException;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertTrue;
+import static org.testng.internal.junit.ArrayAsserts.assertArrayEquals;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -54,6 +59,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -69,8 +75,10 @@ import org.infinispan.client.hotrod.SomeAsyncExecutorFactory;
 import org.infinispan.client.hotrod.SomeCustomConsistentHashV2;
 import org.infinispan.client.hotrod.SomeRequestBalancingStrategy;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.impl.HotRodURI;
 import org.infinispan.client.hotrod.security.BasicCallbackHandler;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
+import org.infinispan.client.hotrod.transaction.lookup.RemoteTransactionManagerLookup;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.marshall.ProtoStreamMarshaller;
 import org.infinispan.commons.util.FileLookupFactory;
@@ -122,7 +130,7 @@ public class ConfigurationTest extends AbstractInfinispanTest {
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".A", c -> c.security().authentication().saslProperties().get("A"));
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".B", c -> c.security().authentication().saslProperties().get("B"));
       OPTIONS.put(SASL_PROPERTIES_PREFIX + ".C", c -> c.security().authentication().saslProperties().get("C"));
-      OPTIONS.put(JAVA_SERIAL_WHITELIST, Configuration::serialWhitelist);
+      OPTIONS.put(JAVA_SERIAL_ALLOWLIST, Configuration::serialAllowList);
       OPTIONS.put(NEAR_CACHE_MODE, c -> c.nearCache().mode());
       OPTIONS.put(NEAR_CACHE_MAX_ENTRIES, c -> c.nearCache().maxEntries());
       OPTIONS.put(NEAR_CACHE_NAME_PATTERN, c -> c.nearCache().cacheNamePattern().pattern());
@@ -211,16 +219,16 @@ public class ConfigurationTest extends AbstractInfinispanTest {
             .serverName("my-server-name")
             .clientSubject(clientSubject)
             .saslProperties(saslProperties)
-            .addJavaSerialWhiteList(".*Person.*", ".*Employee.*")
+            .addJavaSerialAllowList(".*Person.*", ".*Employee.*")
             .nearCache()
             .mode(NearCacheMode.INVALIDATED)
             .maxEntries(10_000)
             .cacheNamePattern("near.*")
             .addCluster("siteA")
-               .addClusterNode("hostA1", 11222)
-               .addClusterNode("hostA2", 11223)
+            .addClusterNode("hostA1", 11222)
+            .addClusterNode("hostA2", 11223)
             .addCluster("siteB")
-               .addClusterNodes("hostB1:11222; hostB2:11223");
+            .addClusterNodes("hostB1:11222; hostB2:11223");
 
       Configuration configuration = builder.build();
       validateConfiguration(configuration);
@@ -274,7 +282,7 @@ public class ConfigurationTest extends AbstractInfinispanTest {
       p.setProperty(SASL_PROPERTIES_PREFIX + ".A", "1");
       p.setProperty(SASL_PROPERTIES_PREFIX + ".B", "2");
       p.setProperty(SASL_PROPERTIES_PREFIX + ".C", "3");
-      p.setProperty(JAVA_SERIAL_WHITELIST, ".*Person.*,.*Employee.*");
+      p.setProperty(JAVA_SERIAL_ALLOWLIST, ".*Person.*,.*Employee.*");
       p.setProperty(NEAR_CACHE_MODE, NearCacheMode.INVALIDATED.name());
       p.setProperty(NEAR_CACHE_MAX_ENTRIES, "10000");
       p.setProperty(NEAR_CACHE_NAME_PATTERN, "near.*");
@@ -495,6 +503,36 @@ public class ConfigurationTest extends AbstractInfinispanTest {
       assertServer("localhost", 8382, cfg.clusters().get(0).getCluster().get(0));
    }
 
+   public void testNoTransactionOverwrite() {
+      ConfigurationBuilder builder = HotRodClientTestingUtil.newRemoteConfigurationBuilder();
+      builder.transaction()
+            .transactionMode(TransactionMode.FULL_XA)
+            .transactionManagerLookup(RemoteTransactionManagerLookup.getInstance())
+            .timeout(1234, TimeUnit.MILLISECONDS);
+      Properties p = new Properties();
+      p.setProperty(SERVER_LIST, "host1:11222; host2:11222");
+      p.setProperty(AUTH_USERNAME, "admin");
+      p.setProperty(AUTH_PASSWORD, "password");
+      p.setProperty(AUTH_REALM, "default");
+      p.setProperty(SASL_MECHANISM, "SCRAM-SHA-512");
+      builder.withProperties(p);
+      Configuration config = builder.build();
+      assertEquals(TransactionMode.FULL_XA, config.transaction().transactionMode());
+      assertEquals(RemoteTransactionManagerLookup.getInstance(), config.transaction().transactionManagerLookup());
+      assertEquals(1234, config.transaction().timeout());
+      assertEquals(2, config.servers().size());
+      assertServer("host1", 11222, config.servers().get(0));
+      assertServer("host2", 11222, config.servers().get(1));
+
+      assertEquals("SCRAM-SHA-512", config.security().authentication().saslMechanism());
+      CallbackHandler ch = config.security().authentication().callbackHandler();
+      assertEquals(BasicCallbackHandler.class, ch.getClass());
+      BasicCallbackHandler bch = (BasicCallbackHandler) ch;
+      assertEquals("admin", bch.getUsername());
+      assertArrayEquals("password".toCharArray(), bch.getPassword());
+      assertEquals("default", bch.getRealm());
+   }
+
    private void assertServer(String host, int port, ServerConfiguration serverCfg) {
       assertEquals(host, serverCfg.host());
       assertEquals(port, serverCfg.port());
@@ -543,7 +581,7 @@ public class ConfigurationTest extends AbstractInfinispanTest {
       assertEqualsConfig("2", SASL_PROPERTIES_PREFIX + ".B", configuration);
       assertEqualsConfig("3", SASL_PROPERTIES_PREFIX + ".C", configuration);
       assertEqualsConfig(ProtocolVersion.PROTOCOL_VERSION_29, PROTOCOL_VERSION, configuration);
-      assertEqualsConfig(Arrays.asList(".*Person.*", ".*Employee.*"), JAVA_SERIAL_WHITELIST, configuration);
+      assertEqualsConfig(Arrays.asList(".*Person.*", ".*Employee.*"), JAVA_SERIAL_ALLOWLIST, configuration);
       assertEqualsConfig(NearCacheMode.INVALIDATED, NEAR_CACHE_MODE, configuration);
       assertEqualsConfig(10_000, NEAR_CACHE_MAX_ENTRIES, configuration);
       assertEqualsConfig("near.*", NEAR_CACHE_NAME_PATTERN, configuration);
@@ -583,6 +621,75 @@ public class ConfigurationTest extends AbstractInfinispanTest {
    private static void assertEqualsConfig(Object expected, String propertyName, Configuration cfg) {
       assertEquals(expected, OPTIONS.get(propertyName).apply(cfg));
       assertEquals(TYPES.get(expected.getClass()).apply(expected), cfg.properties().get(propertyName));
+   }
+
+   public void testConfigurationViaURI() {
+      Configuration configuration = HotRodURI.create("hotrod://host1").toConfigurationBuilder().build();
+      assertEquals(1, configuration.servers().size());
+      assertFalse(configuration.security().ssl().enabled());
+      assertFalse(configuration.security().authentication().enabled());
+      configuration = HotRodURI.create("hotrod://host1?socket_timeout=5000&connect_timeout=1000").toConfigurationBuilder().build();
+      assertEquals(1, configuration.servers().size());
+      assertFalse(configuration.security().ssl().enabled());
+      assertFalse(configuration.security().authentication().enabled());
+      assertEquals(5000, configuration.socketTimeout());
+      assertEquals(1000, configuration.connectionTimeout());
+      configuration = HotRodURI.create("hotrod://host2:11322").toConfigurationBuilder().build();
+      assertEquals(1, configuration.servers().size());
+      assertEquals("host2", configuration.servers().get(0).host());
+      assertEquals(11322, configuration.servers().get(0).port());
+      assertFalse(configuration.security().ssl().enabled());
+      assertFalse(configuration.security().authentication().enabled());
+      configuration = HotRodURI.create("hotrod://user:password@host1:11222").toConfigurationBuilder().build();
+      assertEquals(1, configuration.servers().size());
+      assertFalse(configuration.security().ssl().enabled());
+      assertTrue(configuration.security().authentication().enabled());
+      BasicCallbackHandler callbackHandler = (BasicCallbackHandler)configuration.security().authentication().callbackHandler();
+      assertEquals("user", callbackHandler.getUsername());
+      assertArrayEquals("password".toCharArray(), callbackHandler.getPassword());
+      configuration = HotRodURI.create("hotrod://host1:11222,host2:11322,host3").toConfigurationBuilder().build();
+      assertEquals(3, configuration.servers().size());
+      assertEquals("host1", configuration.servers().get(0).host());
+      assertEquals(11222, configuration.servers().get(0).port());
+      assertEquals("host2", configuration.servers().get(1).host());
+      assertEquals(11322, configuration.servers().get(1).port());
+      assertEquals("host3", configuration.servers().get(2).host());
+      assertEquals(11222, configuration.servers().get(2).port());
+      assertFalse(configuration.security().ssl().enabled());
+      configuration = HotRodURI.create("hotrods://user:password@host1:11222,host2:11322?trust_store_path=cert.pem").toConfigurationBuilder().build();
+      assertEquals(2, configuration.servers().size());
+      assertEquals("host1", configuration.servers().get(0).host());
+      assertEquals(11222, configuration.servers().get(0).port());
+      assertEquals("host2", configuration.servers().get(1).host());
+      assertEquals(11322, configuration.servers().get(1).port());
+      assertTrue(configuration.security().ssl().enabled());
+      assertTrue(configuration.security().authentication().enabled());
+      callbackHandler = (BasicCallbackHandler)configuration.security().authentication().callbackHandler();
+      assertEquals("user", callbackHandler.getUsername());
+      assertArrayEquals("password".toCharArray(), callbackHandler.getPassword());
+      expectException(IllegalArgumentException.class, "ISPN004095:.*", () -> HotRodURI.create("http://host1"));
+      expectException(IllegalArgumentException.class, "ISPN004096:.*", () -> HotRodURI.create("hotrod://host1?property"));
+   }
+
+   public void testCacheNames() throws IOException {
+      Properties properties = new Properties();
+      try(InputStream is = this.getClass().getResourceAsStream("/hotrod-client-percache.properties")) {
+         properties.load(is);
+      }
+      Configuration configuration = new ConfigurationBuilder().withProperties(properties).build();
+      assertEquals(3, configuration.remoteCaches().size());
+      assertTrue(configuration.remoteCaches().containsKey("mycache"));
+      RemoteCacheConfiguration cache = configuration.remoteCaches().get("mycache");
+      assertEquals("org.infinispan.DIST_SYNC", cache.templateName());
+      assertTrue(cache.forceReturnValues());
+      assertTrue(configuration.remoteCaches().containsKey("org.infinispan.yourcache"));
+      cache = configuration.remoteCaches().get("org.infinispan.yourcache");
+      assertEquals("org.infinispan.DIST_ASYNC", cache.templateName());
+      assertEquals(NearCacheMode.INVALIDATED, cache.nearCacheMode());
+      assertTrue(configuration.remoteCaches().containsKey("org.infinispan.*"));
+      cache = configuration.remoteCaches().get("org.infinispan.*");
+      assertEquals("org.infinispan.REPL_SYNC", cache.templateName());
+      assertEquals(TransactionMode.NON_XA, cache.transactionMode());
    }
 
 }

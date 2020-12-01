@@ -1,13 +1,11 @@
 package org.infinispan.client.hotrod.tx;
 
-import static org.infinispan.client.hotrod.configuration.TransactionMode.FULL_XA;
-import static org.infinispan.client.hotrod.configuration.TransactionMode.NON_DURABLE_XA;
-import static org.infinispan.client.hotrod.configuration.TransactionMode.NON_XA;
+import static org.infinispan.client.hotrod.configuration.TransactionMode.NONE;
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.assertNoTransaction;
 import static org.infinispan.client.hotrod.tx.util.KeyValueGenerator.BYTE_ARRAY_GENERATOR;
 import static org.infinispan.client.hotrod.tx.util.KeyValueGenerator.GENERIC_ARRAY_GENERATOR;
 import static org.infinispan.client.hotrod.tx.util.KeyValueGenerator.STRING_GENERATOR;
-import static org.infinispan.test.Exceptions.expectException;
+import static org.infinispan.commons.test.Exceptions.expectException;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
@@ -16,10 +14,14 @@ import static org.testng.AssertJUnit.assertTrue;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 import javax.transaction.SystemException;
 import javax.transaction.Transaction;
@@ -32,6 +34,7 @@ import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.client.hotrod.tx.util.KeyValueGenerator;
 import org.infinispan.client.hotrod.tx.util.TransactionSetup;
 import org.infinispan.commons.marshall.JavaSerializationMarshaller;
+import org.infinispan.commons.test.Exceptions;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.transaction.LockingMode;
@@ -57,17 +60,23 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
 
    @Override
    public Object[] factory() {
-      return new Object[]{
-            new APITxTest<byte[], byte[]>().keyValueGenerator(BYTE_ARRAY_GENERATOR).transactionMode(NON_XA),
-            new APITxTest<byte[], byte[]>().keyValueGenerator(BYTE_ARRAY_GENERATOR).transactionMode(NON_DURABLE_XA),
-            new APITxTest<byte[], byte[]>().keyValueGenerator(BYTE_ARRAY_GENERATOR).transactionMode(FULL_XA),
-            new APITxTest<String, String>().keyValueGenerator(STRING_GENERATOR).transactionMode(NON_XA),
-            new APITxTest<String, String>().keyValueGenerator(STRING_GENERATOR).transactionMode(NON_DURABLE_XA),
-            new APITxTest<String, String>().keyValueGenerator(STRING_GENERATOR).transactionMode(FULL_XA),
-            new APITxTest<Object[], Object[]>().keyValueGenerator(GENERIC_ARRAY_GENERATOR).transactionMode(NON_XA).javaSerialization(),
-            new APITxTest<Object[], Object[]>().keyValueGenerator(GENERIC_ARRAY_GENERATOR).transactionMode(NON_DURABLE_XA).javaSerialization(),
-            new APITxTest<Object[], Object[]>().keyValueGenerator(GENERIC_ARRAY_GENERATOR).transactionMode(FULL_XA).javaSerialization()
-      };
+      return Arrays.stream(TransactionMode.values())
+            .filter(tMode -> tMode != NONE)
+            .flatMap(txMode -> Arrays.stream(LockingMode.values())
+                  .flatMap(lockingMode -> Stream.builder()
+                        .add(new APITxTest<byte[], byte[]>()
+                              .keyValueGenerator(BYTE_ARRAY_GENERATOR)
+                              .transactionMode(txMode)
+                              .lockingMode(lockingMode))
+                        .add(new APITxTest<String, String>()
+                              .keyValueGenerator(STRING_GENERATOR)
+                              .transactionMode(txMode)
+                              .lockingMode(lockingMode))
+                        .add(new APITxTest<Object[], Object[]>()
+                              .keyValueGenerator(GENERIC_ARRAY_GENERATOR).javaSerialization()
+                              .transactionMode(txMode)
+                              .lockingMode(lockingMode))
+                        .build())).toArray();
    }
 
    @AfterMethod(alwaysRun = true)
@@ -153,19 +162,20 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
       tm.commit();
    }
 
-   public void testCompute(Method method) throws Exception {
-      doApiTest(method, this::empty, this::compute, this::checkInitValue, this::checkNoKeys, 1, 1, true);
-   }
-
-   public void testComputeIfAbsent(Method method) throws Exception {
-      doApiTest(method, this::empty, this::computeIfAbsent, this::checkInitValue, this::checkNoKeys, 1, 1, true);
-   }
-
-   public void testComputeIfPresent(Method method) throws Exception {
-      doApiTest(method, this::initKeys, this::computeIfPresent,
-            (keys, values, inTx) -> checkInitValue(keys, values.subList(1, 2), inTx), this::checkInitValue, 1, 2,
-            true);
-   }
+   // Commented out until we properly support compute variants on remote cache
+//   public void testCompute(Method method) throws Exception {
+//      doApiTest(method, this::empty, this::compute, this::checkInitValue, this::checkNoKeys, 1, 1, true);
+//   }
+//
+//   public void testComputeIfAbsent(Method method) throws Exception {
+//      doApiTest(method, this::empty, this::computeIfAbsent, this::checkInitValue, this::checkNoKeys, 1, 1, true);
+//   }
+//
+//   public void testComputeIfPresent(Method method) throws Exception {
+//      doApiTest(method, this::initKeys, this::computeIfPresent,
+//            (keys, values, inTx) -> checkInitValue(keys, values.subList(1, 2), inTx), this::checkInitValue, 1, 2,
+//            true);
+//   }
 
    public void testContainsKeyAndValue(Method method) throws Exception {
       RemoteCache<K, V> cache = txRemoteCache();
@@ -235,6 +245,62 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
       assertTrue(cache.containsValue(value1));
    }
 
+// Compute is not implemented for tx remote caches
+//   public void testCompute(Method method) {
+//   }
+
+   public void testComputeIfAbsentMethods(Method method) {
+      RemoteCache<K, V> cache = txRemoteCache();
+
+      final K targetKey = kvGenerator.generateKey(method, 0);
+
+      Function<? super K, ? extends V> remappingFunction = key ->
+            kvGenerator.generateValue(method, 1);
+
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfAbsent(targetKey, remappingFunction));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfAbsent(targetKey, remappingFunction, 1, TimeUnit.SECONDS));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfAbsent(targetKey, remappingFunction, 1, TimeUnit.SECONDS, 10, TimeUnit.SECONDS));
+
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfAbsentAsync(targetKey, remappingFunction));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfAbsentAsync(targetKey, remappingFunction, 1, TimeUnit.SECONDS));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfAbsentAsync(targetKey, remappingFunction, 1, TimeUnit.SECONDS, 10, TimeUnit.SECONDS));
+   }
+
+   public void testComputeIfPresentMethods(Method method) {
+      RemoteCache<K, V> cache = txRemoteCache();
+
+      final K targetKey = kvGenerator.generateKey(method, 0);
+
+      BiFunction<? super K, ? super V, ? extends V> remappingFunction = (key, value) ->
+            kvGenerator.generateValue(method, 1);
+
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfPresent(targetKey, remappingFunction));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfPresent(targetKey, remappingFunction, 1, TimeUnit.SECONDS));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfPresent(targetKey, remappingFunction, 1, TimeUnit.SECONDS, 10, TimeUnit.SECONDS));
+
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfPresentAsync(targetKey, remappingFunction));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfPresentAsync(targetKey, remappingFunction, 1, TimeUnit.SECONDS));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.computeIfPresentAsync(targetKey, remappingFunction, 1, TimeUnit.SECONDS, 10, TimeUnit.SECONDS));
+   }
+
+   public void testMergeMethods(Method method) {
+      RemoteCache<K, V> cache = txRemoteCache();
+
+      final K targetKey = kvGenerator.generateKey(method, 0);
+      V targetValue = kvGenerator.generateValue(method, 0);
+
+      BiFunction<? super V, ? super V, ? extends V> remappingFunction = (value1, value2) ->
+            kvGenerator.generateValue(method, 2);
+
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.merge(targetKey, targetValue, remappingFunction));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.merge(targetKey, targetValue, remappingFunction, 1, TimeUnit.SECONDS));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.merge(targetKey, targetValue, remappingFunction, 1, TimeUnit.SECONDS,  10, TimeUnit.SECONDS));
+
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.mergeAsync(targetKey, targetValue, remappingFunction));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.mergeAsync(targetKey, targetValue, remappingFunction, 1, TimeUnit.SECONDS));
+      Exceptions.expectException(UnsupportedOperationException.class, () -> cache.mergeAsync(targetKey, targetValue, remappingFunction, 1, TimeUnit.SECONDS,  10, TimeUnit.SECONDS));
+   }
+
    @Override
    protected boolean cleanupAfterMethod() {
       try {
@@ -247,23 +313,23 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
 
    @Override
    protected String[] parameterNames() {
-      return concat(super.parameterNames(), null, null);
+      return concat(super.parameterNames(), null, null, null);
    }
 
    @Override
    protected Object[] parameterValues() {
-      return concat(super.parameterValues(), kvGenerator.toString(), transactionMode);
+      return concat(super.parameterValues(), kvGenerator.toString(), transactionMode, lockingMode);
    }
 
    @Override
    protected String parameters() {
-      return "[" + kvGenerator + "/" + transactionMode + "]";
+      return "[" + kvGenerator + "/" + transactionMode + "/" + lockingMode + "]";
    }
 
    @Override
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder cacheBuilder = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, true);
-      cacheBuilder.transaction().lockingMode(LockingMode.PESSIMISTIC);
+      cacheBuilder.transaction().lockingMode(lockingMode);
       cacheBuilder.locking().isolationLevel(IsolationLevel.REPEATABLE_READ);
       createHotRodServers(NR_NODES, new ConfigurationBuilder());
       defineInAll(CACHE_NAME, cacheBuilder);
@@ -278,7 +344,7 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
       TransactionSetup.amendJTA(clientBuilder);
       clientBuilder.transaction().transactionMode(transactionMode);
       if (useJavaSerialization) {
-         clientBuilder.marshaller(new JavaSerializationMarshaller()).addJavaSerialWhiteList("\\Q[\\ELjava.lang.Object;");
+         clientBuilder.marshaller(new JavaSerializationMarshaller()).addJavaSerialAllowList("\\Q[\\ELjava.lang.Object;");
       }
       return clientBuilder;
    }
@@ -354,10 +420,6 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
    }
 
    private void checkInitValue(List<K> keys, List<V> values) {
-      checkInitValue(keys, values, true);
-   }
-
-   private void checkInitValue(List<K> keys, List<V> values, boolean inTx) {
       RemoteCache<K, V> cache = txRemoteCache();
       for (int i = 0; i < keys.size(); ++i) {
          kvGenerator.assertValueEquals(values.get(i), cache.get(keys.get(i)));
@@ -488,19 +550,9 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
          kvGenerator.assertValueEquals(values.get(2),
                cache.replaceAsync(keys.get(2), values.get(8), 2, TimeUnit.MINUTES, 3, TimeUnit.MINUTES).get());
 
-         //async methods aren't supported in the original cache
-         expectException(UnsupportedOperationException.class,
-               () -> cache.replaceAsync(keys.get(3), values.get(3), values.get(9)));
-         expectException(UnsupportedOperationException.class,
-               () -> cache.replaceAsync(keys.get(4), values.get(4), values.get(10), 4, TimeUnit.MINUTES));
-         expectException(UnsupportedOperationException.class, () -> cache
-               .replaceAsync(keys.get(5), values.get(5), values.get(11), 5, TimeUnit.MINUTES, 6, TimeUnit.MINUTES));
-
-         //the test still expects this to be replaced.
-         assertTrue(cache.replace(keys.get(3), values.get(3), values.get(9)));
-         assertTrue(cache.replace(keys.get(4), values.get(4), values.get(10), 4, TimeUnit.MINUTES));
-         assertTrue(
-               cache.replace(keys.get(5), values.get(5), values.get(11), 5, TimeUnit.MINUTES, 6, TimeUnit.MINUTES));
+         cache.replaceAsync(keys.get(3), values.get(3), values.get(9));
+         cache.replaceAsync(keys.get(4), values.get(4), values.get(10), 4, TimeUnit.MINUTES);
+         cache.replaceAsync(keys.get(5), values.get(5), values.get(11), 5, TimeUnit.MINUTES, 6, TimeUnit.MINUTES);
       }
    }
 
@@ -547,10 +599,7 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
       } else {
          cache.removeAsync(keys.get(0)).get();
 
-         //not supported
-         expectException(UnsupportedOperationException.class, () -> cache.removeAsync(keys.get(1), values.get(1)));
-
-         cache.remove(keys.get(1));
+         cache.removeAsync(keys.get(1), values.get(1));
       }
    }
 
@@ -558,11 +607,10 @@ public class APITxTest<K, V> extends MultiHotRodServersTest {
       assertEquals(1, keys.size());
       assertEquals(1, values.size());
       RemoteCache<K, V> cache = txRemoteCache();
+      MetadataValue<V> value = cache.getWithMetadata(keys.get(0));
       if (sync) {
-         MetadataValue<V> value = cache.getWithMetadata(keys.get(0));
          assertTrue(cache.removeWithVersion(keys.get(0), value.getVersion()));
       } else {
-         MetadataValue<V> value = cache.getWithMetadata(keys.get(0));
          assertTrue(cache.removeWithVersionAsync(keys.get(0), value.getVersion()).get());
       }
    }

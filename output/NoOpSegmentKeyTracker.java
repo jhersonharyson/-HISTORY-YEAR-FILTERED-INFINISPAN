@@ -2,7 +2,8 @@ package org.infinispan.client.hotrod.impl.iteration;
 
 import java.util.Set;
 
-import org.infinispan.commons.configuration.ClassWhiteList;
+import org.infinispan.commons.configuration.ClassAllowList;
+import org.infinispan.commons.util.IntSet;
 
 /**
  * @author gustavonalle
@@ -11,12 +12,12 @@ import org.infinispan.commons.configuration.ClassWhiteList;
 class NoOpSegmentKeyTracker implements KeyTracker {
 
    @Override
-   public boolean track(byte[] key, short status, ClassWhiteList whitelist) {
+   public boolean track(byte[] key, short status, ClassAllowList allowList) {
       return true;
    }
 
    @Override
-   public void segmentsFinished(byte[] finishedSegments) {
+   public void segmentsFinished(IntSet finishedSegments) {
    }
 
    @Override

@@ -6,8 +6,10 @@ import static org.infinispan.client.hotrod.marshall.MarshallerUtil.obj2bytes;
 import org.infinispan.client.hotrod.impl.MarshallerRegistry;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
-import org.infinispan.commons.configuration.ClassWhiteList;
+import org.infinispan.commons.configuration.ClassAllowList;
 import org.infinispan.commons.dataconversion.MediaType;
+import org.infinispan.commons.marshall.AdaptiveBufferSizePredictor;
+import org.infinispan.commons.marshall.BufferSizePredictor;
 import org.infinispan.commons.marshall.IdentityMarshaller;
 import org.infinispan.commons.marshall.Marshaller;
 
@@ -28,6 +30,10 @@ public final class DataFormat {
    private MarshallerRegistry marshallerRegistry;
    private Marshaller defaultMarshaller;
    private boolean isObjectStorage;
+
+   private final BufferSizePredictor keySizePredictor = new AdaptiveBufferSizePredictor();
+   private final BufferSizePredictor valueSizePredictor = new AdaptiveBufferSizePredictor();
+
 
    private DataFormat(MediaType keyType, MediaType valueType, Marshaller keyMarshaller, Marshaller valueMarshaller) {
       this.keyType = keyType;
@@ -88,24 +94,40 @@ public final class DataFormat {
       return IdentityMarshaller.INSTANCE;
    }
 
+   /**
+    * @deprecated Since 12.0, will be removed in 15.0
+    */
+   @Deprecated
    public byte[] keyToBytes(Object key, int estimateKeySize, int estimateValueSize) {
-      Marshaller keyMarshaller = resolveKeyMarshaller();
-      return obj2bytes(keyMarshaller, key, true, estimateKeySize, estimateValueSize);
+      return keyToBytes(key);
    }
 
+   public byte[] keyToBytes(Object key) {
+      Marshaller keyMarshaller = resolveKeyMarshaller();
+      return obj2bytes(keyMarshaller, key, keySizePredictor);
+   }
+
+   /**
+    * @deprecated Since 12.0, will be removed in 15.0
+    */
+   @Deprecated
    public byte[] valueToBytes(Object value, int estimateKeySize, int estimateValueSize) {
-      Marshaller valueMarshaller = resolveValueMarshaller();
-      return obj2bytes(valueMarshaller, value, false, estimateKeySize, estimateValueSize);
+      return valueToBytes(value);
    }
 
-   public <T> T keyToObj(byte[] bytes, ClassWhiteList whitelist) {
+   public byte[] valueToBytes(Object value) {
+      Marshaller valueMarshaller = resolveValueMarshaller();
+      return obj2bytes(valueMarshaller, value, valueSizePredictor);
+   }
+
+   public <T> T keyToObj(byte[] bytes, ClassAllowList allowList) {
       Marshaller keyMarshaller = resolveKeyMarshaller();
-      return bytes2obj(keyMarshaller, bytes, isObjectStorage, whitelist);
+      return bytes2obj(keyMarshaller, bytes, isObjectStorage, allowList);
    }
 
-   public <T> T valueToObj(byte[] bytes, ClassWhiteList whitelist) {
+   public <T> T valueToObj(byte[] bytes, ClassAllowList allowList) {
       Marshaller valueMarshaller = resolveValueMarshaller();
-      return bytes2obj(valueMarshaller, bytes, isObjectStorage, whitelist);
+      return bytes2obj(valueMarshaller, bytes, isObjectStorage, allowList);
    }
 
    @Override

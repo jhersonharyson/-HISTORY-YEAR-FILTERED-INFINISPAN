@@ -12,7 +12,8 @@ import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.CacheException;
-import org.infinispan.commons.configuration.ClassWhiteList;
+import org.infinispan.commons.configuration.ClassAllowList;
+import org.infinispan.commons.marshall.BufferSizePredictor;
 import org.infinispan.commons.marshall.CheckedInputStream;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.ProtoStreamMarshaller;
@@ -50,7 +51,7 @@ public final class MarshallerUtil {
    }
 
    @SuppressWarnings("unchecked")
-   public static <T> T bytes2obj(Marshaller marshaller, byte[] bytes, boolean objectStorage, ClassWhiteList whitelist) {
+   public static <T> T bytes2obj(Marshaller marshaller, byte[] bytes, boolean objectStorage, ClassAllowList allowList) {
       if (bytes == null || bytes.length == 0) return null;
       try {
          Object ret = marshaller.objectFromByteBuffer(bytes);
@@ -61,7 +62,7 @@ public final class MarshallerUtil {
             // So, if the unmarshalled object is still a byte[], it could be a standard
             // serialized object, so check for stream magic
             if (ret instanceof byte[] && isJavaSerialized((byte[]) ret)) {
-               T ois = tryJavaDeserialize(bytes, (byte[]) ret, whitelist);
+               T ois = tryJavaDeserialize(bytes, (byte[]) ret, allowList);
                if (ois != null)
                   return ois;
             }
@@ -73,8 +74,8 @@ public final class MarshallerUtil {
       }
    }
 
-   public static <T> T tryJavaDeserialize(byte[] bytes, byte[] ret, ClassWhiteList whitelist) {
-      try (ObjectInputStream ois = new CheckedInputStream(new ByteArrayInputStream(ret), whitelist)) {
+   public static <T> T tryJavaDeserialize(byte[] bytes, byte[] ret, ClassAllowList allowList) {
+      try (ObjectInputStream ois = new CheckedInputStream(new ByteArrayInputStream(ret), allowList)) {
          return (T) ois.readObject();
       } catch (CacheException ce) {
          throw ce;
@@ -94,9 +95,27 @@ public final class MarshallerUtil {
       return false;
    }
 
+   /**
+    * @deprecated Since 12.0, will be removed in 15.0
+    */
+   @Deprecated
    public static byte[] obj2bytes(Marshaller marshaller, Object o, boolean isKey, int estimateKeySize, int estimateValueSize) {
       try {
          return marshaller.objectToByteBuffer(o, isKey ? estimateKeySize : estimateValueSize);
+      } catch (IOException ioe) {
+         throw new HotRodClientException(
+               "Unable to marshall object of type [" + o.getClass().getName() + "]", ioe);
+      } catch (InterruptedException ie) {
+         Thread.currentThread().interrupt();
+         return null;
+      }
+   }
+
+   public static byte[] obj2bytes(Marshaller marshaller, Object o, BufferSizePredictor sizePredictor) {
+      try {
+         byte[] bytes = marshaller.objectToByteBuffer(o, sizePredictor.nextSize(o));
+         sizePredictor.recordSize(bytes.length);
+         return bytes;
       } catch (IOException ioe) {
          throw new HotRodClientException(
                "Unable to marshall object of type [" + o.getClass().getName() + "]", ioe);

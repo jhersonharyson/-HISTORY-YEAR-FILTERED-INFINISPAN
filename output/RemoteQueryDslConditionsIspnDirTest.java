@@ -1,5 +1,7 @@
 package org.infinispan.client.hotrod.query;
 
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
+
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.marshall.NotIndexedSCI;
 import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.TestDomainSCI;
@@ -9,7 +11,7 @@ import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.testng.annotations.Test;
 
 /**
- * Verifying the functionality of remote queries for infinispan directory_provider.
+ * Verifying the functionality of remote queries for infinispan directory.type.
  *
  * @author Anna Manukyan
  * @author anistor@redhat.com
@@ -18,7 +20,7 @@ import org.testng.annotations.Test;
 @Test(testName = "client.hotrod.query.RemoteQueryDslConditionsIspnDirTest", groups = "functional")
 public class RemoteQueryDslConditionsIspnDirTest extends RemoteQueryDslConditionsTest {
 
-   protected static final String TEST_CACHE_NAME = "testCache";
+   private static final String TEST_CACHE_NAME = "testCache";
 
    @Override
    protected void createCacheManagers() throws Throwable {
@@ -41,7 +43,7 @@ public class RemoteQueryDslConditionsIspnDirTest extends RemoteQueryDslCondition
    @Override
    protected ConfigurationBuilder getConfigurationBuilder() {
       ConfigurationBuilder builder = super.getConfigurationBuilder();
-      builder.indexing().addProperty("default.directory_provider", "infinispan");
+      builder.indexing().storage(LOCAL_HEAP);
       return builder;
    }
 }

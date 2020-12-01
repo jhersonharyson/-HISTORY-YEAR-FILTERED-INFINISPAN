@@ -1,8 +1,10 @@
 package org.infinispan.client.hotrod.query;
 
 
+import static org.infinispan.configuration.cache.IndexStorage.LOCAL_HEAP;
 import static org.testng.AssertJUnit.assertEquals;
 
+import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.Search;
@@ -13,7 +15,6 @@ import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.commons.util.Util;
-import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.FileDescriptorSource;
 import org.infinispan.protostream.SerializationContext;
@@ -34,20 +35,23 @@ public class BuiltInAnalyzersTest extends SingleHotRodServerTest {
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
       org.infinispan.configuration.cache.ConfigurationBuilder builder = new org.infinispan.configuration.cache.ConfigurationBuilder();
-      builder.indexing().index(Index.ALL)
-            .addProperty("default.directory_provider", "local-heap")
-            .addProperty("lucene_version", "LUCENE_CURRENT");
+      builder.indexing().enable()
+            .storage(LOCAL_HEAP)
+            .addIndexedEntity("TestEntity");
 
-      return TestCacheManagerFactory.createServerModeCacheManager(builder);
+      EmbeddedCacheManager manager = TestCacheManagerFactory.createServerModeCacheManager();
+      Cache<String, String> metadataCache = manager.getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
+      String protoFile = Util.getResourceAsString("/analyzers.proto", getClass().getClassLoader());
+      metadataCache.put("analyzers.proto", protoFile);
+      RemoteQueryTestUtils.checkSchemaErrors(metadataCache);
+
+      manager.defineConfiguration("test", builder.build());
+      return manager;
    }
 
    @BeforeClass
    protected void registerProtobufSchema() throws Exception {
       String protoFile = Util.getResourceAsString("/analyzers.proto", getClass().getClassLoader());
-      RemoteCache<String, String> metadataCache = remoteCacheManager.getCache(ProtobufMetadataManagerConstants.PROTOBUF_METADATA_CACHE_NAME);
-      metadataCache.put("analyzers.proto", protoFile);
-      RemoteQueryTestUtils.checkSchemaErrors(metadataCache);
-
       SerializationContext serCtx = MarshallerUtil.getSerializationContext(remoteCacheManager);
       serCtx.registerProtoFiles(FileDescriptorSource.fromString("analyzers.proto", protoFile));
       serCtx.registerMarshaller(new TestEntity.TestEntityMarshaller());
@@ -62,7 +66,7 @@ public class BuiltInAnalyzersTest extends SingleHotRodServerTest {
 
    @Test
    public void testKeywordAnalyzer() {
-      RemoteCache<Integer, TestEntity> remoteCache = remoteCacheManager.getCache();
+      RemoteCache<Integer, TestEntity> remoteCache = remoteCacheManager.getCache("test");
       TestEntity child = new TestEntity("name", "name", "name",
             "name-with-dashes", "name", "name", null);
 
@@ -73,31 +77,31 @@ public class BuiltInAnalyzersTest extends SingleHotRodServerTest {
 
       QueryFactory queryFactory = Search.getQueryFactory(remoteCache);
 
-      assertEquals(1, queryFactory.create("From TestEntity where name4:'name-with-dashes'").getResultSize());
-      assertEquals(1, queryFactory.create("From TestEntity p where p.child.name4:'name-with-dashes'").getResultSize());
+      assertEquals(1, queryFactory.create("From TestEntity where name4:'name-with-dashes'").execute().hitCount().orElse(-1));
+      assertEquals(1, queryFactory.create("From TestEntity p where p.child.name4:'name-with-dashes'").execute().hitCount().orElse(-1));
    }
 
    @Test
    public void testShippedAnalyzers() {
-      RemoteCache<Integer, TestEntity> remoteCache = remoteCacheManager.getCache();
+      RemoteCache<Integer, TestEntity> remoteCache = remoteCacheManager.getCache("test");
       TestEntity testEntity = new TestEntity("Sarah-Jane Lee", "John McDougall", "James Connor",
             "Oswald Lee", "Jason Hawkings", "Gyorgy Constantinides");
       remoteCache.put(1, testEntity);
 
       QueryFactory queryFactory = Search.getQueryFactory(remoteCache);
 
-      assertEquals(1, queryFactory.create("From TestEntity where name1:'jane'").getResultSize());
-      assertEquals(1, queryFactory.create("From TestEntity where name2:'McDougall'").getResultSize());
-      assertEquals(1, queryFactory.create("From TestEntity where name3:'Connor'").getResultSize());
-      assertEquals(1, queryFactory.create("From TestEntity where name4:'Oswald Lee'").getResultSize());
-      assertEquals(1, queryFactory.create("From TestEntity where name5:'hawk'").getResultSize());
-      assertEquals(1, queryFactory.create("From TestEntity where name6:'constan'").getResultSize());
+      assertEquals(1, queryFactory.create("From TestEntity where name1:'jane'").execute().hitCount().orElse(-1));
+      assertEquals(1, queryFactory.create("From TestEntity where name2:'McDougall'").execute().hitCount().orElse(-1));
+      assertEquals(1, queryFactory.create("From TestEntity where name3:'Connor'").execute().hitCount().orElse(-1));
+      assertEquals(1, queryFactory.create("From TestEntity where name4:'Oswald Lee'").execute().hitCount().orElse(-1));
+      assertEquals(1, queryFactory.create("From TestEntity where name5:'hawk'").execute().hitCount().orElse(-1));
+      assertEquals(1, queryFactory.create("From TestEntity where name6:'constan'").execute().hitCount().orElse(-1));
 
-      assertEquals(0, queryFactory.create("From TestEntity where name1:'sara'").getResultSize());
-      assertEquals(0, queryFactory.create("From TestEntity where name2:'John McDougal'").getResultSize());
-      assertEquals(0, queryFactory.create("From TestEntity where name3:'James-Connor'").getResultSize());
-      assertEquals(0, queryFactory.create("From TestEntity where name4:'Oswald lee'").getResultSize());
-      assertEquals(0, queryFactory.create("From TestEntity where name5:'json'").getResultSize());
-      assertEquals(0, queryFactory.create("From TestEntity where name6:'Georje'").getResultSize());
+      assertEquals(0, queryFactory.create("From TestEntity where name1:'sara'").execute().hitCount().orElse(-1));
+      assertEquals(0, queryFactory.create("From TestEntity where name2:'John McDougal'").execute().hitCount().orElse(-1));
+      assertEquals(0, queryFactory.create("From TestEntity where name3:'James-Connor'").execute().hitCount().orElse(-1));
+      assertEquals(0, queryFactory.create("From TestEntity where name4:'Oswald lee'").execute().hitCount().orElse(-1));
+      assertEquals(0, queryFactory.create("From TestEntity where name5:'json'").execute().hitCount().orElse(-1));
+      assertEquals(0, queryFactory.create("From TestEntity where name6:'Georje'").execute().hitCount().orElse(-1));
    }
 }
